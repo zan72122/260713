@@ -75,7 +75,8 @@ uniform vec4 uColorAmt; // rgb=フレーバー色, a=追加量
 void main(){
   vec2 d = (vUv - uPoint) * vec2(uAspect, 1.0);
   float t = clamp(1.0 - length(d) / uRadius, 0.0, 1.0);
-  float dome = t * t * (3.0 - 2.0 * t);
+  // 上が丸く盛り上がり、縁は急に落ちるスクープ形
+  float dome = smoothstep(0.0, 0.38, t) * (0.75 + 0.25 * t);
   float add = uColorAmt.a * dome;
   vec4 c = texture(uTarget, vUv);
   float na = c.a + add;
@@ -396,7 +397,7 @@ void main(){
     float hR = iceHeight(vUv + vec2(texel.x * scale, 0.0));
     float hB = iceHeight(vUv - vec2(0.0, texel.y * scale));
     float hT = iceHeight(vUv + vec2(0.0, texel.y * scale));
-    float nScale = 5.2;
+    float nScale = 6.5;
     vec3 N = normalize(vec3(-(hR - hL) * nScale, -(hT - hB) * nScale, 1.0));
 
     float temp = p.x, air = p.y, crystal = p.z, gloss = p.w;
