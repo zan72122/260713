@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#ffeef6">
+<title>まぜまぜマーブル・アイス</title>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="glcanvas"></canvas>
+
+  <!-- 上バー: フレーバー + トッピング -->
+  <div id="topbar" class="bar">
+    <div class="group" id="flavors"></div>
+    <div class="divider"></div>
+    <div class="group" id="toppings"></div>
+  </div>
+
+  <!-- 下バー: 道具 + 温度 + 音 + リセット -->
+  <div id="bottombar" class="bar">
+    <div class="group" id="tools"></div>
+    <div class="divider"></div>
+    <div class="group" id="temps"></div>
+    <div class="divider"></div>
+    <div class="group" id="misc"></div>
+  </div>
+
+  <!-- 道具カーソル(スプーン/ヘラ) -->
+  <div id="toolcursor"></div>
+
+  <!-- はじめのタップ促し -->
+  <div id="starthint"><div class="hint-ice">🍨</div><div class="hint-hand">👆</div></div>
+
+  <!-- WebGL2非対応メッセージ -->
+  <div id="nogl" hidden>
+    <div class="nogl-inner">🍨💦<br>このブラウザでは あそべません<br><span>WebGL2 が必要です</span></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
