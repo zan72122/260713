@@ -239,7 +239,7 @@ const ui = new UI({
   onTempUp: () => { state.tempHold = null; },
   onSoundToggle: (on) => audio.setEnabled(on),
   onReset: () => {
-    state.resetUntil = performance.now() + 750;
+    state.resetUntil = performance.now() + 1100;
     state.scoopsOnPlate = 0;
     state.stirEnergy = 0;
     state.estCrystal = 0.3;
@@ -254,7 +254,8 @@ let lastT = performance.now();
 let flakeAcc = 0;
 
 function frame(now) {
-  const dt = Math.min(0.033, (now - lastT) / 1000);
+  const rawDt = (now - lastT) / 1000;
+  const dt = Math.min(0.033, rawDt);
   lastT = now;
   layout();
 
@@ -282,8 +283,8 @@ function frame(now) {
   state.stirEnergy = Math.max(0, state.stirEnergy - dt * 0.35);
   sim.sharpness = 0.9 - Math.min(0.65, state.stirEnergy * 0.5);
 
-  // リセットのフェード
-  sim.fade = performance.now() < state.resetUntil ? Math.pow(0.006, dt) : 1.0;
+  // リセットのフェード(実経過時間ベース: 低フレームレートでも確実に消える)
+  sim.fade = performance.now() < state.resetUntil ? Math.pow(0.002, Math.min(rawDt, 0.5)) : 1.0;
 
   stepDrops(dt);
   sim.step(dt);
