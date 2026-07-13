@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2b2b33">
+<title>こえの魔法筆（まほうふで）</title>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon.svg">
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="stage"></canvas>
+
+  <!-- ===== タイトル画面 ===== -->
+  <section id="screen-title" class="screen visible">
+    <div class="title-sky"></div>
+    <div class="title-inner">
+      <div class="title-brush" aria-hidden="true">🖌️</div>
+      <h1 class="title-logo"><span>こえの</span><span class="big">まほうふで</span></h1>
+      <p class="title-sub">こえで せかいに いろを ぬろう</p>
+      <button id="btn-start" class="btn-huge">
+        <span class="btn-icon">✨</span> はじめる
+      </button>
+      <p class="title-hint">🤫 ちいさな こえでも まほうが でるよ</p>
+      <button id="btn-parent" class="btn-tiny" aria-label="おうちの方へ">ⓘ おうちの方へ</button>
+    </div>
+  </section>
+
+  <!-- ===== マイク確認オーバーレイ ===== -->
+  <section id="screen-mic" class="screen">
+    <div class="panel">
+      <div class="panel-emoji">🎤</div>
+      <p class="panel-text">マイクを つかっても いい？<br><small>こえは そとに おくられません</small></p>
+      <div class="spinner" id="mic-spinner"></div>
+    </div>
+  </section>
+
+  <!-- ===== せかいえらび ===== -->
+  <section id="screen-select" class="screen">
+    <h2 class="select-title">どこを いろに する？</h2>
+    <div id="world-grid" class="world-grid"><!-- JSが生成 --></div>
+    <div class="select-footer">
+      <button id="btn-mute" class="btn-round" aria-label="おと">🔊</button>
+      <button id="btn-title" class="btn-round" aria-label="タイトルへ">🏠</button>
+    </div>
+  </section>
+
+  <!-- ===== ゲームHUD ===== -->
+  <section id="screen-game" class="screen game-hud">
+    <div class="hud-top">
+      <button id="btn-back" class="btn-round" aria-label="もどる">⬅️</button>
+      <div class="progress-wrap" aria-label="すすみぐあい">
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <div id="progress-star">⭐</div>
+      </div>
+      <button id="btn-mute2" class="btn-round" aria-label="おと">🔊</button>
+    </div>
+
+    <!-- マイクの状態と ようせいのメッセージ -->
+    <div id="fairy-bubble" class="fairy-bubble hidden"><span id="fairy-text"></span></div>
+    <div id="mic-meter" class="mic-meter"><div id="mic-meter-dot"></div></div>
+
+    <!-- 母音ヒント（マイクなしのときは おしてもつかえる） -->
+    <div id="vowel-tray" class="vowel-tray">
+      <button class="vowel-btn" data-vowel="a"><span class="vchar">あ</span><span class="vdot" style="--c:#ff6d8d"></span></button>
+      <button class="vowel-btn" data-vowel="i"><span class="vchar">い</span><span class="vdot" style="--c:#57b8ff"></span></button>
+      <button class="vowel-btn" data-vowel="u"><span class="vchar">う</span><span class="vdot" style="--c:#a06dff"></span></button>
+      <button class="vowel-btn" data-vowel="e"><span class="vchar">え</span><span class="vdot" style="--c:#5ed67d"></span></button>
+      <button class="vowel-btn" data-vowel="o"><span class="vchar">お</span><span class="vdot" style="--c:#ffc247"></span></button>
+    </div>
+  </section>
+
+  <!-- ===== おいわい ===== -->
+  <section id="screen-celebrate" class="screen">
+    <div class="celebrate-inner">
+      <div id="celebrate-stars" class="celebrate-stars">⭐⭐⭐</div>
+      <h2 class="celebrate-title">できた！</h2>
+      <p id="celebrate-sub" class="celebrate-sub">せかいが いろで いっぱい！</p>
+      <button id="btn-next" class="btn-huge"><span class="btn-icon">🌈</span> つぎへ</button>
+    </div>
+  </section>
+
+  <!-- ===== おうちの方へ ===== -->
+  <section id="screen-parent" class="screen">
+    <div class="panel parent-panel">
+      <h2>おうちの方へ</h2>
+      <ul>
+        <li>🎤 お子さまの声で、モノクロの世界に色をつける遊びです。声はすべて端末内で処理され、録音・送信は一切しません。</li>
+        <li>🤫 <b>声の大きさは魔法の強さに影響しません。</b>小さな声・ささやき声でも同じ魔法が出ます。「大きな声を出させる」設計を意図的に避けています。</li>
+        <li>🗣️ 「あ・い・う・え・お」の母音、声の高さ、長さ、リズム、息の音（ふー）、破裂音（ぱっ）で魔法が変わります。</li>
+        <li>👆 指でなぞりながら声を出すと、その場所に魔法が広がります。指を離していても、妖精の筆が代わりに塗ってくれます。</li>
+        <li>🔇 マイクが使えない環境では、画面下の「あいうえお」ボタンを押しながらなぞって遊べます。</li>
+        <li>📱 iPhone / iPad の Safari（縦・横どちらでも）で動作します。マイク利用のため HTTPS でのアクセスが必要です。</li>
+      </ul>
+      <button id="btn-parent-close" class="btn-huge small">とじる</button>
+    </div>
+  </section>
+
+  <!-- 回転・エラー表示 -->
+  <div id="toast" class="toast hidden"></div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
