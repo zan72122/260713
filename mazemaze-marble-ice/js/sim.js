@@ -3,7 +3,7 @@ import { Program, createBlit, createFBO, createDoubleFBO } from './gl.js';
 import * as SH from './shaders.js';
 
 const VELOCITY_RES = 256;   // 長辺
-const DYE_RES = 864;        // 長辺
+const DYE_RES = 1152;       // 長辺(画面が低解像度ならそれ以下に)
 const PRESSURE_ITER = 22;
 
 export class IceSim {
@@ -43,7 +43,7 @@ export class IceSim {
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
     this.aspect = w / h;
     const velSize = this.resFor(VELOCITY_RES, w, h);
-    const dyeSize = this.resFor(DYE_RES, w, h);
+    const dyeSize = this.resFor(Math.min(DYE_RES, Math.max(w, h)), w, h);
 
     this.velocity = createDoubleFBO(gl, velSize.w, velSize.h, gl.RG16F, gl.RG, gl.HALF_FLOAT, gl.LINEAR);
     this.divergence = createFBO(gl, velSize.w, velSize.h, gl.R16F, gl.RED, gl.HALF_FLOAT, gl.NEAREST);

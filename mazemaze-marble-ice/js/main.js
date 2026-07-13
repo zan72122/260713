@@ -108,7 +108,7 @@ function stepDrops(dt) {
     };
     const dAmt = (ease(t1) - ease(t0)) * 1.35;
     if (dAmt > 0) {
-      const wob = 1 + 0.18 * Math.sin(t1 * 34);
+      const wob = 1 + 0.08 * Math.sin(t1 * 34);
       sim.splatColor(d.x, d.y, d.r * wob, d.color[0], d.color[1], d.color[2], dAmt);
       sim.splatProps(d.x, d.y, d.r * wob,
         [FLAVOR_PROPS.temp, FLAVOR_PROPS.air, FLAVOR_PROPS.crystal, FLAVOR_PROPS.gloss],

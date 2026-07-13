@@ -76,7 +76,7 @@ void main(){
   vec2 d = (vUv - uPoint) * vec2(uAspect, 1.0);
   float t = clamp(1.0 - length(d) / uRadius, 0.0, 1.0);
   // 上が丸く盛り上がり、縁は急に落ちるスクープ形
-  float dome = smoothstep(0.0, 0.38, t) * (0.75 + 0.25 * t);
+  float dome = smoothstep(0.0, 0.26, t) * (0.75 + 0.25 * t);
   float add = uColorAmt.a * dome;
   vec4 c = texture(uTarget, vUv);
   float na = c.a + add;
@@ -382,7 +382,7 @@ void main(){
   vec4 c = texture(uColor, vUv);
   vec4 p = texture(uProps, vUv);
   float amount = c.a;
-  float coverage = smoothstep(0.030, 0.14, amount);
+  float coverage = smoothstep(0.045, 0.20, amount);
 
   // アイスの接地影(すこし下にオフセット)
   float aSh = texture(uColor, vUv + vec2(-0.004, 0.010)).a;
