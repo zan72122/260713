@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#3a3a44"/>
+  <circle cx="38" cy="44" r="14" fill="#ff6d8d"/>
+  <circle cx="66" cy="30" r="10" fill="#57b8ff"/>
+  <circle cx="90" cy="48" r="12" fill="#ffc247"/>
+  <circle cx="52" cy="66" r="9" fill="#5ed67d"/>
+  <circle cx="80" cy="72" r="8" fill="#a06dff"/>
+  <g transform="rotate(35 64 92)">
+    <rect x="58" y="66" width="12" height="40" rx="5" fill="#c98a4b"/>
+    <path d="M58 66 Q64 48 70 66 Z" fill="#fff"/>
+  </g>
+  <text x="64" y="120" font-size="20" text-anchor="middle" fill="#fff" font-family="sans-serif">あ〜お</text>
+</svg>
