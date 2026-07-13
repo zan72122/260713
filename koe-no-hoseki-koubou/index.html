@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#141228">
+  <title>こえの宝石工房</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💎</text></svg>">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <!-- ================= あそび中の HUD ================= -->
+  <div id="hud" class="hidden">
+    <!-- 上: レシピの足あと(=成長メーター) -->
+    <div id="trail"></div>
+
+    <!-- 聞き取った音の吹き出し -->
+    <div id="bubble" class="hidden"><span id="bubble-text">あー</span></div>
+
+    <!-- 手拍子カウント表示 -->
+    <div id="clap-flash" class="hidden">👏</div>
+
+    <div id="corner-tl">
+      <button id="btn-gallery" class="round-btn" aria-label="ほうせきのたな">📖</button>
+    </div>
+    <div id="corner-tr">
+      <button id="btn-info" class="round-btn small" aria-label="おうちのかたへ">🛈</button>
+      <button id="btn-mute" class="round-btn small" aria-label="おと">🔊</button>
+    </div>
+    <div id="corner-bl">
+      <button id="btn-pad" class="round-btn" aria-label="こえボタン">🎹</button>
+    </div>
+
+    <div id="mic-hint">こえを きかせてね 🎤</div>
+
+    <!-- こえボタン(マイクなしでもあそべる) -->
+    <div id="pad" class="hidden">
+      <div id="pad-pitch">
+        <button class="pad-p" data-pitch="high">↑ たかい</button>
+        <button class="pad-p active" data-pitch="mid">ー ふつう</button>
+        <button class="pad-p" data-pitch="low">↓ ひくい</button>
+      </div>
+      <div id="pad-vowels">
+        <button class="pad-v v-a" data-v="a">あ</button>
+        <button class="pad-v v-i" data-v="i">い</button>
+        <button class="pad-v v-u" data-v="u">う</button>
+        <button class="pad-v v-e" data-v="e">え</button>
+        <button class="pad-v v-o" data-v="o">お</button>
+      </div>
+      <div id="pad-extra">
+        <button id="pad-blow">🌬 ふー</button>
+        <button id="pad-clap2">👏👏</button>
+        <button id="pad-clap3">👏👏👏</button>
+      </div>
+      <p class="pad-note">ながおし で ながい こえに なるよ</p>
+    </div>
+  </div>
+
+  <!-- ================= タイトル ================= -->
+  <div id="title-screen">
+    <div class="title-sparkles" aria-hidden="true">
+      <span>✦</span><span>✧</span><span>✦</span><span>✧</span><span>✦</span><span>✧</span>
+    </div>
+    <div class="title-gem" aria-hidden="true">💎</div>
+    <h1>こえの<br>ほうせき こうぼう</h1>
+    <p class="subtitle">こえを だすと ほうせきが そだつよ</p>
+    <button id="btn-start" class="big-btn">はじめる ✨</button>
+    <p id="title-status"></p>
+  </div>
+
+  <!-- ================= 完成のお祝い ================= -->
+  <div id="celebrate" class="hidden">
+    <div class="cele-inner">
+      <div class="cele-emoji" aria-hidden="true">🎉✨🎉</div>
+      <h2>かんせい!</h2>
+      <p id="cele-name"></p>
+      <img id="cele-thumb" alt="できあがった ほうせき">
+      <button id="btn-next" class="big-btn">つぎの ほうせき ✨</button>
+    </div>
+  </div>
+
+  <!-- ================= ほうせきのたな ================= -->
+  <div id="gallery" class="hidden">
+    <div class="panel">
+      <h2>💎 ほうせきの たな</h2>
+      <div id="gallery-grid"></div>
+      <div class="panel-buttons">
+        <button id="btn-new-gem" class="mid-btn">🌱 さいしょから そだてる</button>
+        <button id="btn-close-gallery" class="mid-btn primary">とじる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- あたらしい宝石の確認 -->
+  <div id="confirm-new" class="hidden">
+    <div class="panel small-panel">
+      <p>いまの ほうせきを やめて<br>あたらしく そだてる?</p>
+      <div class="panel-buttons">
+        <button id="btn-confirm-yes" class="mid-btn primary">はい 🌱</button>
+        <button id="btn-confirm-no" class="mid-btn">やめる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ギャラリーの宝石を眺めるモード -->
+  <div id="viewer-bar" class="hidden">
+    <span id="viewer-name">ほうせき</span>
+    <button id="btn-back" class="mid-btn primary">もどる ↩</button>
+  </div>
+
+  <!-- ================= おうちのかたへ ================= -->
+  <div id="info" class="hidden">
+    <div class="panel info-panel">
+      <h2>おうちのかたへ</h2>
+      <ul>
+        <li>マイクで拾った声の高さ・長さ・母音(あいうえお)・手拍子・息の音で宝石が育ちます。</li>
+        <li>音声はその場で解析するだけで、<b>録音・送信は一切しません</b>。作品はこの端末の中にだけ保存されます。</li>
+        <li>マイクが使えないときは 🎹 の「こえボタン」でも遊べます。</li>
+        <li>同じ声の組み合わせからは、いつも同じ宝石が育ちます。</li>
+      </ul>
+      <div class="info-table">
+        <div><b>あー</b> まるい ももいろ</div>
+        <div><b>いー</b> とがった そらいろ</div>
+        <div><b>うー</b> しずくの むらさき</div>
+        <div><b>えー</b> えだわかれ みどり</div>
+        <div><b>おー</b> こがねの わ</div>
+        <div><b>ふー</b> ゆきの けっしょう</div>
+        <div><b>👏👏</b> 2ほんの すじ</div>
+        <div><b>👏👏👏</b> さんかく もよう</div>
+      </div>
+      <div class="panel-buttons">
+        <button id="btn-speech-toggle" class="mid-btn">おしゃべり: ON</button>
+        <button id="btn-clear-data" class="mid-btn danger">作品を全部消す</button>
+        <button id="btn-close-info" class="mid-btn primary">とじる</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
