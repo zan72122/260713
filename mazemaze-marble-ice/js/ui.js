@@ -75,8 +75,8 @@ export const TOPPINGS = [
 ];
 
 export class UI {
-  // handlers: onFlavor(f), onTopping(t), onTool(t), onTempDown(kind), onTempUp,
-  //           onSoundToggle(on), onReset, onAnyPress()
+  // handlers: onFlavorDown(f, e), onFlavorUp(e), onTopping(t), onTool(t),
+  //           onTempDown(kind), onTempUp, onSoundToggle(on), onReset, onAnyPress()
   constructor(handlers) {
     this.h = handlers;
     this.tool = 'finger';
@@ -113,12 +113,22 @@ export class UI {
     const el = document.getElementById('flavors');
     for (const f of FLAVORS) {
       const b = this.mkBtn(el, scoopSVG(f.body, f.drip), f.id);
+      // 押したまま=注ぎモード開始(お皿へドラッグでたらす)。指を離した時の挙動は main 側で判定
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         this.h.onAnyPress();
-        const ok = this.h.onFlavor(f);
-        ok ? this.boing(b) : this.deny(b);
+        // ボタンがポインタを掴むことで、指がボタンの外へ出ても move/up を追える
+        try { b.setPointerCapture(e.pointerId); } catch { /* 古い環境では追従なしのタップ扱い */ }
+        const ok = this.h.onFlavorDown(f, e);
+        ok ? b.classList.add('holding') : this.deny(b);
       });
+      const up = (e) => {
+        b.classList.remove('holding');
+        const tapped = this.h.onFlavorUp(e);
+        if (tapped) this.boing(b);
+      };
+      b.addEventListener('pointerup', up);
+      b.addEventListener('pointercancel', up);
     }
   }
 

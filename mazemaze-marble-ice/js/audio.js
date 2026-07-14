@@ -12,8 +12,10 @@ export class GameAudio {
     this.enabled = true;
     this.started = false;
     this.stir = { speed: 0, chunky: 0, tex: null };
+    this.pour = 0;
     this._nextCrunch = 0;
     this._nextDrip = 0;
+    this._nextPourDrip = 0;
   }
 
   // 最初のユーザー操作で呼ぶ (iOS対策)
@@ -68,6 +70,9 @@ export class GameAudio {
 
     // ---- とろとろループ: 液体っぽい中域 ----
     this.liquid = this.makeNoiseLoop({ type: 'bandpass', freq: 900, q: 4, rate: 0.6 });
+
+    // ---- 注ぎループ: とろ〜っとたれる音 ----
+    this.pourLoop = this.makeNoiseLoop({ type: 'lowpass', freq: 750, q: 1.4, rate: 0.8 });
 
     // ---- もちもちループ: ゆっくり深くうねる低域(のびる音) ----
     this.mochiLoop = this.makeNoiseLoop({ type: 'lowpass', freq: 260, q: 2.0, rate: 0.45 });
@@ -136,6 +141,11 @@ export class GameAudio {
     this.stir = { speed, chunky, tex };
   }
 
+  // 注ぎ中の強さ (0..1)
+  setPourState(amount) {
+    this.pour = amount;
+  }
+
   // 毎フレーム呼ぶ
   update() {
     if (!this.ctx || !this.enabled) return;
@@ -179,6 +189,14 @@ export class GameAudio {
     if (liqAmt > 0.15 && now >= this._nextDrip) {
       this.drip();
       this._nextDrip = now + 0.25 + Math.random() * 0.7;
+    }
+
+    // 注ぎ: とろ〜っというたれ音 + ときどき雫
+    this.pourLoop.gain.gain.setTargetAtTime(this.pour * 0.12, now, 0.06);
+    this.pourLoop.filter.frequency.setTargetAtTime(600 + Math.sin(now * 5.0) * 160, now, 0.08);
+    if (this.pour > 0.3 && now >= this._nextPourDrip) {
+      this.drip();
+      this._nextPourDrip = now + 0.18 + Math.random() * 0.4;
     }
 
     this.bgm.update(now);
