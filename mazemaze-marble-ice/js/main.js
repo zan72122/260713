@@ -20,6 +20,14 @@ const TOOLS = {
 };
 
 const MAX_SCOOPS = 9;
+const SAMPLE_INTERVAL_MS = 90;   // 指の下の質感を読み出す間隔(音のフレーバー連動用)
+const SHELL_BREAK_THRESHOLD = 0.18; // これ以上の殻は混ぜると割れる
+
+// 何もさわっていない時の音用フォールバック質感
+const DEFAULT_SAMPLE = {
+  temp: 0.32, air: 0.75, crystal: 0.2, gloss: 0.1,
+  shari: 0, mochi: 0, shell: 0, jelly: 0,
+};
 
 const state = {
   tool: 'finger',
@@ -27,8 +35,9 @@ const state = {
   scoopsOnPlate: 0,
   stirEnergy: 0,         // 細かく混ぜた度合い → にじみ(均一化)
   speedSm: 0,            // 音用スムーズ化した混ぜ速度
-  estCrystal: 0.3,       // 音用の状態推定
-  estAir: 0.75,
+  sample: null,          // 指の下の質感 (sim.sampleAt の結果)
+  lastSampleMs: 0,
+  nextShellCrackMs: 0,
   resetUntil: 0,
   lastInteract: performance.now(),
   started: false,
@@ -70,8 +79,7 @@ function plateInfo() {
 }
 
 // ---- スクープを置く ----
-const FLAVOR_PROPS = { temp: 0.32, air: 0.85, crystal: 0.24, gloss: 0.10 };
-const dropQueue = []; // { x, y, color, t, dur }
+const dropQueue = []; // { x, y, flavor, t, dur, r }
 
 function dropSpotFor(i) {
   // 置き場所: 中央→まわりに輪状
@@ -90,9 +98,8 @@ function addScoop(flavor) {
   const jx = (Math.random() - 0.5) * 0.1, jy = (Math.random() - 0.5) * 0.1;
   const x = p.cx + (ox + jx) * p.r / p.aspect;
   const y = p.cy + (oy + jy) * p.r;
-  dropQueue.push({ x, y, color: flavor.color, t: 0, dur: 0.34, r: p.r * 0.34 });
+  dropQueue.push({ x, y, flavor, t: 0, dur: 0.34, r: p.r * 0.34 });
   state.scoopsOnPlate++;
-  state.estAir = Math.min(1, state.estAir + 0.15);
   audio.plop();
   return true;
 }
@@ -109,10 +116,11 @@ function stepDrops(dt) {
     const dAmt = (ease(t1) - ease(t0)) * 1.35;
     if (dAmt > 0) {
       const wob = 1 + 0.08 * Math.sin(t1 * 34);
-      sim.splatColor(d.x, d.y, d.r * wob, d.color[0], d.color[1], d.color[2], dAmt);
-      sim.splatProps(d.x, d.y, d.r * wob,
-        [FLAVOR_PROPS.temp, FLAVOR_PROPS.air, FLAVOR_PROPS.crystal, FLAVOR_PROPS.gloss],
-        [0.5, 0.5, 0.5, 0.5], [0, 0, 0, 0]);
+      const col = d.flavor.color;
+      sim.splatColor(d.x, d.y, d.r * wob, col[0], col[1], col[2], dAmt);
+      // フレーバー固有の質感を色と一緒に置く
+      sim.splatProps(d.x, d.y, d.r * wob, d.flavor.props, [0.5, 0.5, 0.5, 0.5], [0, 0, 0, 0]);
+      sim.splatProps2(d.x, d.y, d.r * wob, d.flavor.props2, [0.5, 0.5, 0.5, 0.5], [0, 0, 0, 0]);
     }
     // 着地の「ぷるん」波
     if (t0 < d.dur * 0.85 && t1 >= d.dur * 0.85) {
@@ -185,6 +193,14 @@ function stirAt(prev, x, y, dt, pressure) {
   if (speed > cap) { vx *= cap / speed; vy *= cap / speed; }
   const spd = Math.min(speed, cap);
 
+  // 指の下の質感を読み出す(音のフレーバー連動・殻割り判定に使用)
+  const nowMs = performance.now();
+  if (nowMs - state.lastSampleMs > SAMPLE_INTERVAL_MS) {
+    state.lastSampleMs = nowMs;
+    state.sample = sim.sampleAt(x, y);
+  }
+  const smp = state.sample;
+
   // 混ぜる力
   sim.splatVelocity(x, y, vx * tool.force, vy * tool.force, tool.radius);
 
@@ -200,6 +216,19 @@ function stirAt(prev, x, y, dt, pressure) {
     [0, 0, 0, 0], [0, 0, 0, 0],
     [fricHeat, -airCut, crystalAdd, glossAdd]);
 
+  // ぱりぱり殻: 押して混ぜると割れる(ぱきぱき音つき)
+  if (smp && smp.shell > SHELL_BREAK_THRESHOLD) {
+    const breakAmt = Math.min(0.6, press * spd * 0.30);
+    if (breakAmt > 0.02) {
+      sim.splatProps2(x, y, tool.radius * 0.8,
+        [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, -breakAmt, 0]);
+      if (smp.shell > 0.35 && nowMs >= state.nextShellCrackMs) {
+        audio.shellCrack(Math.min(1, smp.shell + breakAmt));
+        state.nextShellCrackMs = nowMs + 130 + Math.random() * 180;
+      }
+    }
+  }
+
   // トッピング粒に力を伝える
   const broke = chunks.stir(x, y, vx * tool.force, vy * tool.force, tool.radius * 1.15, sim.aspect, press);
   if (broke > 0) audio.crack();
@@ -207,14 +236,49 @@ function stirAt(prev, x, y, dt, pressure) {
   // 細かく何度も混ぜるほど「にじんで」均一化へ
   state.stirEnergy = Math.min(1.6, state.stirEnergy + spd * dt * 0.55);
   state.speedSm = Math.max(state.speedSm, spd / cap);
-  // 音用の状態推定
-  state.estAir = Math.max(0, state.estAir - airCut * 0.10);
-  state.estCrystal = Math.min(1, state.estCrystal + crystalAdd * 0.06);
 }
 
 function updateCursor(e, moving) {
   if (state.tool === 'finger') return;
   cursorEl.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+}
+
+// ---- 初期配置: 2〜3個をランダムなフレーバー・位置でぽとん ----
+const pendingDropTimers = [];
+
+function clearPendingDrops() {
+  for (const timer of pendingDropTimers) clearTimeout(timer);
+  pendingDropTimers.length = 0;
+}
+
+function randomInitialDrops() {
+  const count = Math.random() < 0.45 ? 3 : 2;
+  const pool = [...FLAVORS];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  // お皿の中心まわりに等間隔+ゆらぎで配置(かならず離れて落ちる)
+  const baseAng = Math.random() * Math.PI * 2;
+  return pool.slice(0, count).map((flavor, i) => {
+    const ang = baseAng + i * (Math.PI * 2 / count) + (Math.random() - 0.5) * 0.55;
+    const rad = (count === 2 ? 0.30 : 0.36) + (Math.random() - 0.5) * 0.12;
+    return { flavor, ox: Math.cos(ang) * rad, oy: Math.sin(ang) * rad, delay: 500 + i * 400 };
+  });
+}
+
+function scheduleInitialScene(extraDelay = 0) {
+  for (const d of randomInitialDrops()) {
+    pendingDropTimers.push(setTimeout(() => {
+      const p = plateInfo();
+      dropQueue.push({
+        x: p.cx + d.ox * p.r / p.aspect,
+        y: p.cy + d.oy * p.r,
+        flavor: d.flavor, t: 0, dur: 0.34, r: p.r * 0.36,
+      });
+      state.scoopsOnPlate++;
+    }, extraDelay + d.delay));
+  }
 }
 
 // ---- UI ----
@@ -242,10 +306,13 @@ const ui = new UI({
     state.resetUntil = performance.now() + 1100;
     state.scoopsOnPlate = 0;
     state.stirEnergy = 0;
-    state.estCrystal = 0.3;
-    state.estAir = 0.75;
+    state.sample = null;
+    dropQueue.length = 0;
+    clearPendingDrops();
     chunks.clear();
     audio.sweep();
+    // フェードが終わったら、また新しいランダム配置で始まる
+    scheduleInitialScene(1250);
   },
 });
 
@@ -289,7 +356,7 @@ function frame(now) {
   stepDrops(dt);
   sim.step(dt);
   const landed = chunks.update(dt, p);
-  if (landed > 0) audio.crunchTick(0.5, 1);
+  if (landed > 0) audio.crunchTick(0.5, 1, 0);
   flakes.update(dt);
 
   // 描画
@@ -297,32 +364,13 @@ function frame(now) {
   chunks.draw(sim.color.read, sim.aspect, gl.drawingBufferWidth, gl.drawingBufferHeight);
   flakes.draw(gl.drawingBufferWidth, gl.drawingBufferHeight);
 
-  // ---- 音の状態更新 ----
-  // 推定値は場の時間発展と同じ向きに緩和
-  const coldness = Math.max(0, (0.4 - sim.ambient) / 0.4);
-  const heat = Math.max(0, (sim.ambient - 0.55) / 0.37);
-  state.estCrystal = Math.min(1, Math.max(0, state.estCrystal + dt * (coldness * 0.10 - heat * 0.40)));
-  const melt = Math.min(1, Math.max(0, (sim.ambient - 0.55) / 0.35));
+  // ---- 音の状態更新: 指の下の質感がそのまま音になる ----
   const chunky = Math.min(1, chunks.list.filter(c => !c.falling && c.sink < 0.85).length / 30);
-  audio.setStirState(state.speedSm, state.estCrystal, melt, state.estAir, chunky);
+  audio.setStirState(state.speedSm, chunky, state.sample || DEFAULT_SAMPLE);
   audio.update();
   state.speedSm *= Math.exp(-dt * 7);
 
   requestAnimationFrame(frame);
-}
-
-// ---- 初期配置: 赤と青のアイスをぽとん ----
-function initialScene() {
-  setTimeout(() => {
-    const p = plateInfo();
-    dropQueue.push({ x: p.cx - p.r * 0.30 / p.aspect, y: p.cy + p.r * 0.12, color: FLAVORS[0].color, t: 0, dur: 0.34, r: p.r * 0.36 });
-    state.scoopsOnPlate++;
-  }, 500);
-  setTimeout(() => {
-    const p = plateInfo();
-    dropQueue.push({ x: p.cx + p.r * 0.30 / p.aspect, y: p.cy - p.r * 0.10, color: FLAVORS[1].color, t: 0, dur: 0.34, r: p.r * 0.36 });
-    state.scoopsOnPlate++;
-  }, 900);
 }
 
 // ---- 各種イベント ----
@@ -336,5 +384,5 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
 
 layout();
-initialScene();
+scheduleInitialScene();
 requestAnimationFrame(frame);

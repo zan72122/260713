@@ -1,19 +1,19 @@
 // Web Audio API によるその場合成サウンド
-// 効果音: ざくざく / ねっとり / とろ〜 / ぽとん / パラパラ / ひんやり / ぽかぽか
-// BGM: オルゴール調ループ + やわらかいパッド
+// 効果音: ざくざく / しゃりしゃり / ねっとり / もちもち / ぷるぷる / とろ〜 /
+//         ぱりぱり(殻割れ) / ぽとん / パラパラ / ひんやり / ぽかぽか
+// 指の下の質感(フレーバー固有)がそのまま音色に反映される
+import { MusicBox } from './audio_bgm.js';
+
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 export class GameAudio {
   constructor() {
     this.ctx = null;
     this.enabled = true;
     this.started = false;
-    this.stir = { speed: 0, crystal: 0.3, melt: 0, air: 0.7, chunky: 0 };
+    this.stir = { speed: 0, chunky: 0, tex: null };
     this._nextCrunch = 0;
     this._nextDrip = 0;
-    this._nextNote = 0;
-    this._noteStep = 0;
-    this._nextPad = 0;
-    this._padStep = 0;
   }
 
   // 最初のユーザー操作で呼ぶ (iOS対策)
@@ -40,15 +40,15 @@ export class GameAudio {
     this.bgmBus.connect(this.master);
 
     // オルゴール用ディレイ(ふわっと残響)
-    this.bgmDelay = ctx.createDelay(1.0);
-    this.bgmDelay.delayTime.value = 0.42;
+    const bgmDelay = ctx.createDelay(1.0);
+    bgmDelay.delayTime.value = 0.42;
     const fb = ctx.createGain();
     fb.gain.value = 0.28;
     const wet = ctx.createGain();
     wet.gain.value = 0.4;
-    this.bgmDelay.connect(fb); fb.connect(this.bgmDelay);
-    this.bgmDelay.connect(wet); wet.connect(this.bgmBus);
-    this.bgmSend = this.bgmDelay;
+    bgmDelay.connect(fb); fb.connect(bgmDelay);
+    bgmDelay.connect(wet); wet.connect(this.bgmBus);
+    this.bgm = new MusicBox(ctx, this.bgmBus, bgmDelay);
 
     // ノイズバッファ(共用)
     const len = ctx.sampleRate * 2;
@@ -56,47 +56,64 @@ export class GameAudio {
     const d = this.noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
 
-    // ---- ねっとりループ ----
-    this.slushSrc = ctx.createBufferSource();
-    this.slushSrc.buffer = this.noiseBuf;
-    this.slushSrc.loop = true;
-    this.slushFilter = ctx.createBiquadFilter();
-    this.slushFilter.type = 'lowpass';
-    this.slushFilter.frequency.value = 500;
-    this.slushFilter.Q.value = 1.2;
-    this.slushGain = ctx.createGain();
-    this.slushGain.gain.value = 0;
-    this.slushSrc.connect(this.slushFilter);
-    this.slushFilter.connect(this.slushGain);
-    this.slushGain.connect(this.sfxBus);
-    this.slushSrc.start();
-    // フィルタをゆらすLFO (ねちゃっと感)
-    this.slushLFO = ctx.createOscillator();
-    this.slushLFO.frequency.value = 5.5;
-    const lfoGain = ctx.createGain();
-    lfoGain.gain.value = 260;
-    this.slushLFO.connect(lfoGain);
-    lfoGain.connect(this.slushFilter.frequency);
-    this.slushLFO.start();
+    // ---- ねっとりループ: ねちゃっとした低域ノイズ ----
+    this.slush = this.makeNoiseLoop({ type: 'lowpass', freq: 500, q: 1.2 });
+    const slushLFO = ctx.createOscillator();
+    slushLFO.frequency.value = 5.5;
+    const slushLFOGain = ctx.createGain();
+    slushLFOGain.gain.value = 260;
+    slushLFO.connect(slushLFOGain);
+    slushLFOGain.connect(this.slush.filter.frequency);
+    slushLFO.start();
 
-    // ---- とろとろループ ----
-    this.liquidSrc = ctx.createBufferSource();
-    this.liquidSrc.buffer = this.noiseBuf;
-    this.liquidSrc.loop = true;
-    this.liquidSrc.playbackRate.value = 0.6;
-    this.liquidFilter = ctx.createBiquadFilter();
-    this.liquidFilter.type = 'bandpass';
-    this.liquidFilter.frequency.value = 900;
-    this.liquidFilter.Q.value = 4;
-    this.liquidGain = ctx.createGain();
-    this.liquidGain.gain.value = 0;
-    this.liquidSrc.connect(this.liquidFilter);
-    this.liquidFilter.connect(this.liquidGain);
-    this.liquidGain.connect(this.sfxBus);
-    this.liquidSrc.start();
+    // ---- とろとろループ: 液体っぽい中域 ----
+    this.liquid = this.makeNoiseLoop({ type: 'bandpass', freq: 900, q: 4, rate: 0.6 });
 
-    this._nextNote = ctx.currentTime + 0.5;
-    this._nextPad = ctx.currentTime + 0.2;
+    // ---- もちもちループ: ゆっくり深くうねる低域(のびる音) ----
+    this.mochiLoop = this.makeNoiseLoop({ type: 'lowpass', freq: 260, q: 2.0, rate: 0.45 });
+    const mochiLFO = ctx.createOscillator();
+    mochiLFO.frequency.value = 2.2;
+    const mochiLFOGain = ctx.createGain();
+    mochiLFOGain.gain.value = 190;
+    mochiLFO.connect(mochiLFOGain);
+    mochiLFOGain.connect(this.mochiLoop.filter.frequency);
+    mochiLFO.start();
+
+    // ---- ぷるぷるループ: びよびよ揺れるサイン波 ----
+    this.jellyOsc = ctx.createOscillator();
+    this.jellyOsc.type = 'sine';
+    this.jellyOsc.frequency.value = 150;
+    const jellyVib = ctx.createOscillator();
+    jellyVib.frequency.value = 9;
+    const jellyVibGain = ctx.createGain();
+    jellyVibGain.gain.value = 26;
+    jellyVib.connect(jellyVibGain);
+    jellyVibGain.connect(this.jellyOsc.frequency);
+    this.jellyGain = ctx.createGain();
+    this.jellyGain.gain.value = 0;
+    this.jellyOsc.connect(this.jellyGain);
+    this.jellyGain.connect(this.sfxBus);
+    this.jellyOsc.start();
+    jellyVib.start();
+  }
+
+  makeNoiseLoop({ type, freq, q, rate = 1.0 }) {
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    src.playbackRate.value = rate;
+    const filter = ctx.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxBus);
+    src.start();
+    return { src, filter, gain };
   }
 
   setEnabled(on) {
@@ -114,8 +131,9 @@ export class GameAudio {
   }
 
   // かき混ぜ状態を毎フレーム反映
-  setStirState(speed, crystal, melt, air, chunky) {
-    this.stir = { speed, crystal, melt, air, chunky };
+  // tex = 指の下の質感 {temp, air, crystal, gloss, shari, mochi, shell, jelly}
+  setStirState(speed, chunky, tex) {
+    this.stir = { speed, chunky, tex };
   }
 
   // 毎フレーム呼ぶ
@@ -124,21 +142,35 @@ export class GameAudio {
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const s = this.stir;
+    const t = s.tex;
+    if (!t) return;
     const sp = Math.min(1, s.speed);
+    const melt = clamp01((t.temp - 0.55) / 0.35);
 
-    // ねっとり: 中温・空気少なめで強い
-    const slushAmt = sp * (1 - s.melt * 0.85) * (0.35 + 0.65 * (1 - s.air)) * (1 - s.crystal * 0.5);
-    this.slushGain.gain.setTargetAtTime(slushAmt * 0.30, now, 0.08);
-    this.slushFilter.frequency.setTargetAtTime(380 + sp * 480, now, 0.1);
+    // ねっとり: ツヤ・もちもち領域(チョコなど)を混ぜると強い
+    const slushAmt = sp * (1 - melt * 0.85) * (0.3 + 0.7 * (1 - t.air))
+      * clamp01(0.35 + t.gloss * 0.8 + t.mochi * 0.4) * (1 - t.crystal * 0.4);
+    this.slush.gain.gain.setTargetAtTime(slushAmt * 0.30, now, 0.08);
+    this.slush.filter.frequency.setTargetAtTime(380 + sp * 480, now, 0.1);
+
+    // もちもち: マンゴー領域を混ぜるとのびる音
+    const mochiAmt = sp * t.mochi * (1 - melt * 0.7);
+    this.mochiLoop.gain.gain.setTargetAtTime(mochiAmt * 0.26, now, 0.09);
+
+    // ぷるぷる: いちご領域を混ぜるとびよびよ
+    const jellyAmt = sp * t.jelly * (1 - melt * 0.7);
+    this.jellyGain.gain.setTargetAtTime(jellyAmt * 0.05, now, 0.07);
+    this.jellyOsc.frequency.setTargetAtTime(130 + sp * 70, now, 0.1);
 
     // とろとろ: 溶けてるほど強い
-    const liqAmt = sp * s.melt;
-    this.liquidGain.gain.setTargetAtTime(liqAmt * 0.16, now, 0.08);
+    const liqAmt = sp * melt;
+    this.liquid.gain.gain.setTargetAtTime(liqAmt * 0.16, now, 0.08);
 
-    // ざくざく: 結晶・粒が多いほど短いクランチ音を連射
-    const crunchRate = sp * (s.crystal * 0.75 + s.chunky * 0.6);
+    // ざく/しゃり: 結晶・氷粒・トッピング粒が多いほど短いクランチ音を連射
+    // ソーダ(しゃり)領域は高く明るい氷の音になる
+    const crunchRate = sp * (t.crystal * 0.6 + t.shari * 0.9 + s.chunky * 0.6);
     if (crunchRate > 0.04 && now >= this._nextCrunch) {
-      this.crunchTick(0.25 + 0.75 * Math.min(1, crunchRate), s.chunky);
+      this.crunchTick(0.25 + 0.75 * Math.min(1, crunchRate), s.chunky, t.shari);
       const interval = 0.03 + (1 - Math.min(1, crunchRate)) * 0.13;
       this._nextCrunch = now + interval * (0.6 + Math.random() * 0.8);
     }
@@ -149,21 +181,22 @@ export class GameAudio {
       this._nextDrip = now + 0.25 + Math.random() * 0.7;
     }
 
-    this.updateBGM(now);
+    this.bgm.update(now);
   }
 
   // ---- 個別SFX ----
-  crunchTick(strength, chunky) {
+  // ざくざく/しゃりしゃり: bright(=shari) が高いほど高く軽い氷の音
+  crunchTick(strength, chunky, bright = 0) {
     if (!this.ctx || !this.enabled) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
-    src.playbackRate.value = 0.8 + Math.random() * 0.9;
+    src.playbackRate.value = 0.8 + Math.random() * 0.9 + bright * 0.5;
     const f = ctx.createBiquadFilter();
     f.type = 'bandpass';
-    f.frequency.value = 1400 + Math.random() * 2600 - chunky * 500;
-    f.Q.value = 1.6;
+    f.frequency.value = 1400 + Math.random() * 2600 - chunky * 500 + bright * 1800;
+    f.Q.value = 1.6 + bright * 1.4;
     const g = ctx.createGain();
     const peak = (0.05 + 0.14 * strength) * (0.7 + Math.random() * 0.6);
     g.gain.setValueAtTime(peak, t);
@@ -254,6 +287,28 @@ export class GameAudio {
     src.start(t, Math.random()); src.stop(t + 0.08);
   }
 
+  // ぱりぱりっ(チョコ殻がわれる: 2〜3連の高いクラック)
+  shellCrack(strength) {
+    if (!this.ctx || !this.enabled) return;
+    const ctx = this.ctx;
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < n; i++) {
+      const t = ctx.currentTime + i * (0.03 + Math.random() * 0.03);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      src.playbackRate.value = 1.6 + Math.random() * 0.6;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 3200 + Math.random() * 1600 - i * 500;
+      f.Q.value = 2.2;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime((0.12 + 0.14 * strength) * (1 - i * 0.25), t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+      src.connect(f); f.connect(g); g.connect(this.sfxBus);
+      src.start(t, Math.random() * 1.5); src.stop(t + 0.07);
+    }
+  }
+
   // ひんやり(キラキラ〜)
   freeze() {
     if (!this.ctx || !this.enabled) return;
@@ -325,85 +380,5 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
     src.connect(f); f.connect(g); g.connect(this.sfxBus);
     src.start(t, Math.random()); src.stop(t + 0.8);
-  }
-
-  // ---- BGM: オルゴール ----
-  updateBGM(now) {
-    // 一時停止明けは追いつき再生せず現在時刻から再開
-    if (this._nextNote < now - 0.2) this._nextNote = now;
-    if (this._nextPad < now - 0.2) this._nextPad = now;
-    // ペンタトニック + ときどきお休み。2小節ごとに雰囲気が変わる
-    const SCALE = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.7, 1318.5]; // C D E G A C D E
-    const STEP = 60 / 76 / 2; // 76bpm 8分音符
-    while (this._nextNote < now + 0.3) {
-      const bar = Math.floor(this._noteStep / 8) % 4;
-      const pos = this._noteStep % 8;
-      // シード付きパターン(小節ごとに揺らぐ)
-      const h = Math.sin(this._noteStep * 12.9898 + bar * 78.233) * 43758.5453;
-      const r = h - Math.floor(h);
-      const rest = (pos === 3 || pos === 7) ? r < 0.65 : r < 0.28;
-      if (!rest) {
-        const idx = Math.floor(r * 993) % SCALE.length;
-        this.musicBoxNote(SCALE[idx], this._nextNote, 0.06 + r * 0.02);
-      }
-      // 小節頭に低いルート音
-      if (pos === 0) {
-        const roots = [261.63, 220.0, 174.61, 196.0]; // C A F G
-        this.musicBoxNote(roots[bar], this._nextNote, 0.05);
-      }
-      this._noteStep++;
-      this._nextNote += STEP;
-    }
-
-    // パッド: 8秒ごとにコードがゆっくり移ろう
-    while (this._nextPad < now + 0.5) {
-      const CHORDS = [
-        [261.63, 329.63, 392.0],  // C
-        [220.0, 261.63, 329.63],  // Am
-        [174.61, 220.0, 261.63],  // F
-        [196.0, 246.94, 293.66],  // G
-      ];
-      const chord = CHORDS[this._padStep % 4];
-      for (const f of chord) this.padNote(f * 0.5, this._nextPad, 8.5);
-      this._padStep++;
-      this._nextPad += 8.0;
-    }
-  }
-
-  musicBoxNote(freq, t, vol) {
-    const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = freq;
-    const o2 = ctx.createOscillator();
-    o2.type = 'sine';
-    o2.frequency.value = freq * 4; // オルゴールの倍音キラ
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0004, t + 1.4);
-    const g2 = ctx.createGain();
-    g2.gain.setValueAtTime(0, t);
-    g2.gain.linearRampToValueAtTime(vol * 0.14, t + 0.004);
-    g2.gain.exponentialRampToValueAtTime(0.0004, t + 0.5);
-    o.connect(g); o2.connect(g2);
-    g.connect(this.bgmBus); g2.connect(this.bgmBus);
-    g.connect(this.bgmSend);
-    o.start(t); o.stop(t + 1.5);
-    o2.start(t); o2.stop(t + 0.6);
-  }
-
-  padNote(freq, t, dur) {
-    const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    o.detune.value = (Math.random() - 0.5) * 8;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.016, t + 2.5);
-    g.gain.linearRampToValueAtTime(0, t + dur);
-    o.connect(g); g.connect(this.bgmBus);
-    o.start(t); o.stop(t + dur + 0.1);
   }
 }
