@@ -54,6 +54,13 @@ const pour = new PourController({ sim, audio, plateInfo, uvFromEvent, state, max
 const tilt = new TiltController({ sim, audio, plateInfo, uvFromEvent });
 const taste = new TasteController({ sim, audio, plateInfo });
 
+// 状態駆動BGM: オルゴールの読み取りアームがお皿をスキャンできるように、
+// 皿中心比の極座標オフセット → その場所の色・質感サンプルを渡す
+audio.setPlateSampler((ox, oy) => {
+  const p = plateInfo();
+  return sim.sampleAt(p.cx + ox * p.r / p.aspect, p.cy + oy * p.r);
+});
+
 // ---- レイアウト: お皿の位置をバーの隙間に合わせる ----
 function layout() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -406,6 +413,8 @@ function frame(now) {
   const chunky = Math.min(1, chunks.list.filter(c => !c.falling && c.sink < 0.85).length / 30);
   audio.setStirState(state.speedSm, chunky, state.sample || DEFAULT_SAMPLE);
   audio.update();
+  // オルゴールの読み取りアーム位置を描画へ(次フレームで光の針になる)
+  sim.musicAngle = audio.getMusicAngle();
   state.speedSm *= Math.exp(-dt * 7);
 
   requestAnimationFrame(frame);

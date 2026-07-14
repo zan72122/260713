@@ -13,6 +13,8 @@ uniform float uTime;
 uniform float uAmbient;
 uniform vec2 uResolution;
 uniform vec2 uTilt; // お皿の傾き(流れ落ちる向き)
+uniform float uMusicAngle; // オルゴールの読み取りアーム角(ラジアン)
+uniform float uMusicOn;    // 1=アーム表示
 ${PLATE_MASK}
 ${NOISE}
 
@@ -195,6 +197,23 @@ void main(){
     // 薄いシロップやぷるぷるは下のお皿が透ける
     float alpha = coverage * mix(1.0, 0.75, max(syrup * thin, jelly * 0.35));
     col = mix(col, ice, alpha);
+  }
+
+  // --- オルゴールの読み取りアーム(お皿を一周する光の針。通った場所が鳴っている) ---
+  if (uMusicOn > 0.5 && pd < 1.0) {
+    vec2 mp = (vUv - uPlateCenter) * vec2(uAspect, 1.0);
+    float pixAng = atan(mp.y, mp.x);
+    float dAng = mod(pixAng - uMusicAngle + 3.14159, 6.28318) - 3.14159;
+    // 針はくっきり、通り過ぎた側(角度が大きい側)に淡い尾を引く
+    float core = exp(-dAng * dAng * 130.0);
+    float tail = dAng > 0.0 ? exp(-dAng * 3.2) * 0.35 : 0.0;
+    float radial = smoothstep(0.06, 0.3, pd) * (1.0 - smoothstep(0.86, 1.0, pd));
+    float beam = (core * 0.8 + tail) * radial;
+    // 白いお皿の上でも見えるよう、ピンクの針として混ぜる(加算だと白でクリップする)
+    col = mix(col, vec3(1.0, 0.62, 0.84), beam * 0.30);
+    // アイスの上ではほんのり光も足す
+    float over = smoothstep(0.045, 0.2, amount);
+    col += vec3(1.0, 0.9, 0.96) * beam * over * 0.10;
   }
 
   // やわらかい全体ビネット
