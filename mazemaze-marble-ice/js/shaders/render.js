@@ -132,25 +132,26 @@ void main(){
     albedo *= 1.0 + (grain - 0.5) * rough * 0.26;
     N.xy += (vec2(grain, grain2) - 0.5) * rough * 0.34;
 
-    // しゃりしゃり: 大きめの氷粒。青白くきらめく
-    float sgrain = hash12(floor(gUv * 0.21) + 57.0);
+    // しゃりしゃり: 結晶より粗い氷粒。青白くきらめく(2スケールを重ねて自然な粒感に)
+    float sgrain = hash12(floor(gUv * 0.55) + 57.0) * 0.6 + hash12(floor(gUv * 0.30) + 77.0) * 0.4;
     float shariAmt = shari * (1.0 - melt * 0.8);
     albedo = mix(albedo, albedo * vec3(0.88, 0.97, 1.10) + vec3(0.05, 0.07, 0.10), shariAmt * 0.30);
-    albedo *= 1.0 + (sgrain - 0.5) * shariAmt * 0.42;
-    N.xy += (vec2(sgrain, hash12(floor(gUv * 0.21) + 91.0)) - 0.5) * shariAmt * 0.5;
+    albedo *= 1.0 + (sgrain - 0.45) * shariAmt * 0.30;
+    N.xy += (vec2(sgrain, hash12(floor(gUv * 0.55) + 91.0)) - 0.5) * shariAmt * 0.38;
     N = normalize(N);
 
     // ぷるぷる: 色が濃く透きとおる
     albedo = mix(albedo, albedo * albedo * 1.4, jelly * 0.45);
 
     // ぱりぱり: チョコ殻コーティング。割れかけはヒビから中の色がのぞく
-    float coat = smoothstep(0.22, 0.80, shell);
+    float coat = smoothstep(0.25, 0.85, shell);
     if (coat > 0.001) {
       float ridge = abs(fbm(vUv * vec2(uAspect, 1.0) * 34.0) - 0.5) * 2.0;
-      float crackedness = smoothstep(0.90, 0.30, shell);
-      float crackLine = smoothstep(0.16, 0.02, ridge) * crackedness;
-      vec3 coatCol = vec3(0.34, 0.21, 0.12) * (0.9 + 0.2 * grain2);
-      vec3 coated = mix(albedo, coatCol, 0.85);
+      float crackedness = smoothstep(0.95, 0.30, shell);
+      float crackLine = smoothstep(0.20, 0.02, ridge) * crackedness;
+      // ミルクチョコ色。中の色がほんのり透けて「その子の殻」に見える
+      vec3 coatCol = mix(vec3(0.42, 0.27, 0.16), albedo * 0.55, 0.22) * (0.9 + 0.2 * grain2);
+      vec3 coated = mix(albedo, coatCol, 0.72);
       albedo = mix(albedo, coated, coat * (1.0 - crackLine));
     }
 
@@ -179,8 +180,8 @@ void main(){
     // キラキラ: 氷の結晶 + しゃり粒がまたたく
     float tw = hash12(floor(gUv * 0.9) + floor(uTime * 3.0));
     float glint = step(0.985, tw) * crystal * crystal * coverage * (0.4 + 0.6 * grain);
-    float tw2 = hash12(floor(gUv * 0.35) + floor(uTime * 2.0) + 17.0);
-    glint += step(0.972, tw2) * shariAmt * coverage * 0.8;
+    float tw2 = hash12(floor(gUv * 0.55) + floor(uTime * 2.0) + 17.0);
+    glint += step(0.976, tw2) * shariAmt * coverage * 0.8;
 
     // ふんわり輪郭光(ぷるぷるもほんのり)
     float rimL = pow(1.0 - N.z, 1.8) * (air * 0.35 + jelly * 0.25);
