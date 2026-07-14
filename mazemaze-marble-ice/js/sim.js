@@ -1,6 +1,8 @@
 // 流体シミュレーション本体 (WebGL2)
 import { Program, createBlit, createFBO, createDoubleFBO } from './gl.js';
-import * as SH from './shaders.js';
+import { baseVS } from './shaders/common.js';
+import * as SIM from './shaders/sim.js';
+import { renderFS } from './shaders/render.js';
 
 const VELOCITY_RES = 256;   // 長辺
 const DYE_RES = 1152;       // 長辺(画面が低解像度ならそれ以下に)
@@ -12,17 +14,19 @@ export class IceSim {
     this.canvas = canvas;
     this.blit = createBlit(gl);
 
-    this.progSplatVel = new Program(gl, SH.baseVS, SH.splatVelocityFS);
-    this.progSplatColor = new Program(gl, SH.baseVS, SH.splatColorFS);
-    this.progSplatProps = new Program(gl, SH.baseVS, SH.splatPropsFS);
-    this.progAdvVel = new Program(gl, SH.baseVS, SH.advectVelocityFS);
-    this.progDiv = new Program(gl, SH.baseVS, SH.divergenceFS);
-    this.progPressure = new Program(gl, SH.baseVS, SH.pressureFS);
-    this.progGrad = new Program(gl, SH.baseVS, SH.gradientSubtractFS);
-    this.progAdvDye = new Program(gl, SH.baseVS, SH.advectDyeFS);
-    this.progMacCormack = new Program(gl, SH.baseVS, SH.macCormackFS);
-    this.progPropsUpdate = new Program(gl, SH.baseVS, SH.propsUpdateFS);
-    this.progRender = new Program(gl, SH.baseVS, SH.renderFS);
+    this.progSplatVel = new Program(gl, baseVS, SIM.splatVelocityFS);
+    this.progSplatColor = new Program(gl, baseVS, SIM.splatColorFS);
+    this.progSplatProps = new Program(gl, baseVS, SIM.splatPropsFS);
+    this.progAdvVel = new Program(gl, baseVS, SIM.advectVelocityFS);
+    this.progDiv = new Program(gl, baseVS, SIM.divergenceFS);
+    this.progPressure = new Program(gl, baseVS, SIM.pressureFS);
+    this.progGrad = new Program(gl, baseVS, SIM.gradientSubtractFS);
+    this.progAdvDye = new Program(gl, baseVS, SIM.advectDyeFS);
+    this.progMacCormack = new Program(gl, baseVS, SIM.macCormackFS);
+    this.progPropsUpdate = new Program(gl, baseVS, SIM.propsUpdateFS);
+    this.progProps2Update = new Program(gl, baseVS, SIM.props2UpdateFS);
+    this.progSample = new Program(gl, baseVS, SIM.sampleFS);
+    this.progRender = new Program(gl, baseVS, renderFS);
 
     // お皿(UVでの中心・半径)は main が layout から設定
     this.plateCenter = [0.5, 0.5];
@@ -34,6 +38,10 @@ export class IceSim {
     this.sharpness = 0.86;    // マーブルのくっきり度
     this.fade = 1.0;          // リセット中 <1
     this.time = 0;
+
+    // 指の位置の質感読み出し用 (props / props2 の2ピクセル)
+    this.sampleFBO = createFBO(this.gl, 2, 1, this.gl.RGBA8, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.gl.NEAREST);
+    this.sampleBuf = new Uint8Array(8);
 
     this.allocate();
   }
@@ -50,6 +58,7 @@ export class IceSim {
     this.pressure = createDoubleFBO(gl, velSize.w, velSize.h, gl.R16F, gl.RED, gl.HALF_FLOAT, gl.NEAREST);
     this.color = createDoubleFBO(gl, dyeSize.w, dyeSize.h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
     this.props = createDoubleFBO(gl, dyeSize.w, dyeSize.h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
+    this.props2 = createDoubleFBO(gl, dyeSize.w, dyeSize.h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
     // MacCormack 作業バッファ
     this.dyeTempA = createFBO(gl, dyeSize.w, dyeSize.h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
     this.dyeTempB = createFBO(gl, dyeSize.w, dyeSize.h, gl.RGBA16F, gl.RGBA, gl.HALF_FLOAT, gl.LINEAR);
@@ -63,14 +72,14 @@ export class IceSim {
 
   resize() {
     // 画面サイズが変わったら作り直し(内容は消える: 回転時のみなので許容)
-    const gl = this.gl;
     const keepColor = this.color;
     const keepProps = this.props;
-    const oldW = keepColor.width, oldH = keepColor.height;
+    const keepProps2 = this.props2;
     this.allocate();
     // 旧内容を引き伸ばしコピーして続きを遊べるように
     this.copyInto(keepColor.read, this.color.write); this.color.swap();
     this.copyInto(keepProps.read, this.props.write); this.props.swap();
+    this.copyInto(keepProps2.read, this.props2.write); this.props2.swap();
   }
 
   copyInto(srcFBO, dstFBO) {
@@ -127,19 +136,48 @@ export class IceSim {
     this.color.swap();
   }
 
-  splatProps(x, y, radius, target, mixAmt, add) {
+  splatPropsInto(field, x, y, radius, target, mixAmt, add) {
     const gl = this.gl;
     const p = this.progSplatProps;
     p.use();
-    gl.uniform1i(p.uniforms.uTarget, this.props.read.attach(0));
+    gl.uniform1i(p.uniforms.uTarget, field.read.attach(0));
     gl.uniform2f(p.uniforms.uPoint, x, y);
     gl.uniform1f(p.uniforms.uRadius, radius);
     gl.uniform1f(p.uniforms.uAspect, this.aspect);
     gl.uniform4f(p.uniforms.uPropTarget, ...target);
     gl.uniform4f(p.uniforms.uPropMix, ...mixAmt);
     gl.uniform4f(p.uniforms.uPropAdd, ...add);
-    this.blit(this.props.write);
-    this.props.swap();
+    this.blit(field.write);
+    field.swap();
+  }
+
+  splatProps(x, y, radius, target, mixAmt, add) {
+    this.splatPropsInto(this.props, x, y, radius, target, mixAmt, add);
+  }
+
+  splatProps2(x, y, radius, target, mixAmt, add) {
+    this.splatPropsInto(this.props2, x, y, radius, target, mixAmt, add);
+  }
+
+  // 指の位置の質感を読み出す(音のフレーバー連動用)
+  // 戻り値は 0..1 の8成分。呼び出し側でスロットルすること
+  sampleAt(x, y) {
+    const gl = this.gl;
+    const p = this.progSample;
+    p.use();
+    gl.uniform1i(p.uniforms.uProps, this.props.read.attach(0));
+    gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(1));
+    gl.uniform2f(p.uniforms.uPoint, x, y);
+    this.blit(this.sampleFBO);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sampleFBO.fbo);
+    gl.readPixels(0, 0, 2, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.sampleBuf);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const b = this.sampleBuf;
+    const INV255 = 1 / 255;
+    return {
+      temp: b[0] * INV255, air: b[1] * INV255, crystal: b[2] * INV255, gloss: b[3] * INV255,
+      shari: b[4] * INV255, mochi: b[5] * INV255, shell: b[6] * INV255, jelly: b[7] * INV255,
+    };
   }
 
   // ---- 1フレーム進める ----
@@ -154,7 +192,8 @@ export class IceSim {
       p.use();
       gl.uniform1i(p.uniforms.uVelocity, this.velocity.read.attach(0));
       gl.uniform1i(p.uniforms.uProps, this.props.read.attach(1));
-      gl.uniform1i(p.uniforms.uColor, this.color.read.attach(2));
+      gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(2));
+      gl.uniform1i(p.uniforms.uColor, this.color.read.attach(3));
       gl.uniform1f(p.uniforms.uDt, dt);
       this.bindPlate(p);
       this.blit(this.velocity.write);
@@ -170,7 +209,6 @@ export class IceSim {
       this.bindPlate(p);
       this.blit(this.divergence);
 
-      // 圧力初期化(前フレームの0.6倍から開始で収束促進)
       const pc = this.progPressure;
       pc.use();
       gl.uniform2f(pc.uniforms.uTexel, this.velocity.texelSizeX, this.velocity.texelSizeY);
@@ -193,32 +231,48 @@ export class IceSim {
 
     // 色: MacCormack 移流 (くっきりマーブル)
     this.advectMacCormack(this.color, dt, this.fade);
-    // 状態: 単純移流(なめらかで良い)
+    // 状態: 単純移流(なめらかで良い) — props と props2 の両方
+    this.advectSimple(this.props, dt);
+    this.advectSimple(this.props2, dt);
+
+    // 質感 (props2) の時間発展
     {
-      const p = this.progAdvDye;
+      const p = this.progProps2Update;
       p.use();
-      gl.uniform1i(p.uniforms.uVelocity, this.velocity.read.attach(0));
-      gl.uniform1i(p.uniforms.uSource, this.props.read.attach(1));
-      gl.uniform1i(p.uniforms.uColor, this.color.read.attach(2));
-      gl.uniform1i(p.uniforms.uProps, this.props.read.attach(3));
+      gl.uniform1i(p.uniforms.uProps, this.props.read.attach(0));
+      gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(1));
       gl.uniform1f(p.uniforms.uDt, dt);
-      gl.uniform1f(p.uniforms.uAspect, this.aspect);
-      this.blit(this.props.write);
-      this.props.swap();
+      this.blit(this.props2.write);
+      this.props2.swap();
     }
 
-    // 状態の時間発展
+    // 状態 (props) の時間発展
     {
       const p = this.progPropsUpdate;
       p.use();
       gl.uniform1i(p.uniforms.uProps, this.props.read.attach(0));
-      gl.uniform1i(p.uniforms.uColor, this.color.read.attach(1));
+      gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(1));
+      gl.uniform1i(p.uniforms.uColor, this.color.read.attach(2));
       gl.uniform1f(p.uniforms.uDt, dt);
       gl.uniform1f(p.uniforms.uAmbient, this.ambient);
       gl.uniform1f(p.uniforms.uAmbientRate, this.ambientRate);
       this.blit(this.props.write);
       this.props.swap();
     }
+  }
+
+  advectSimple(field, dt) {
+    const gl = this.gl;
+    const p = this.progAdvDye;
+    p.use();
+    gl.uniform1i(p.uniforms.uVelocity, this.velocity.read.attach(0));
+    gl.uniform1i(p.uniforms.uSource, field.read.attach(1));
+    gl.uniform1i(p.uniforms.uColor, this.color.read.attach(2));
+    gl.uniform1i(p.uniforms.uProps, this.props.read.attach(3));
+    gl.uniform1f(p.uniforms.uDt, dt);
+    gl.uniform1f(p.uniforms.uAspect, this.aspect);
+    this.blit(field.write);
+    field.swap();
   }
 
   advectMacCormack(field, dt, fade) {
@@ -249,6 +303,7 @@ export class IceSim {
     gl.uniform1i(mc.uniforms.uBackward, this.dyeTempB.attach(3));
     gl.uniform1i(mc.uniforms.uColor, this.color.read.attach(4));
     gl.uniform1i(mc.uniforms.uProps, this.props.read.attach(5));
+    gl.uniform1i(mc.uniforms.uProps2, this.props2.read.attach(6));
     gl.uniform1f(mc.uniforms.uDt, dt);
     this.bindPlate(mc);
     gl.uniform1f(mc.uniforms.uSharpness, this.sharpness);
@@ -263,6 +318,8 @@ export class IceSim {
     p.use();
     gl.uniform1i(p.uniforms.uColor, this.color.read.attach(0));
     gl.uniform1i(p.uniforms.uProps, this.props.read.attach(1));
+    gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(2));
+    gl.uniform1i(p.uniforms.uVelocity, this.velocity.read.attach(3));
     gl.uniform1f(p.uniforms.uTime, this.time);
     gl.uniform1f(p.uniforms.uAmbient, this.ambient);
     gl.uniform2f(p.uniforms.uResolution, gl.drawingBufferWidth, gl.drawingBufferHeight);

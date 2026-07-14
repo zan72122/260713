@@ -53,7 +53,7 @@ html, body {
 .divider { width: 4px; }
 
 /* ---------- ボタン ---------- */
-:root { --btn: clamp(32px, calc((100vw - 128px) / 8), 58px); }
+:root { --btn: clamp(32px, calc((100vw - 132px) / 9), 58px); }
 button.gamebtn {
   width: var(--btn);
   height: var(--btn);
@@ -185,7 +185,7 @@ button.gamebtn svg#resetring {
 
 /* ---------- 横画面: バーを左右の縦カラムに ---------- */
 @media (orientation: landscape) and (max-height: 560px) {
-  :root { --btn: clamp(30px, calc((100vh - 128px) / 8), 52px); }
+  :root { --btn: clamp(30px, calc((100vh - 132px) / 9), 52px); }
   .bar {
     top: 0;
     bottom: 0;

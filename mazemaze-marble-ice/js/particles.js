@@ -1,6 +1,6 @@
 // トッピング粒(クッキー/チョコチップ/いちご) と 雪・湯気パーティクル
 import { Program } from './gl.js';
-import * as SH from './shaders.js';
+import * as SH from './shaders/particles.js';
 
 const MAX_CHUNKS = 260;
 const MAX_FLAKES = 90;
