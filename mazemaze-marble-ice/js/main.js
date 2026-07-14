@@ -6,6 +6,7 @@ import { GameAudio } from './audio.js';
 import { UI, FLAVORS, CURSOR_SVGS } from './ui.js';
 import { PourController } from './pour.js';
 import { TiltController } from './tilt.js';
+import { TasteController } from './taste.js';
 
 const canvas = document.getElementById('glcanvas');
 const gl = initGL(canvas);
@@ -51,6 +52,7 @@ const flakes = new Flakes(gl);
 const audio = new GameAudio();
 const pour = new PourController({ sim, audio, plateInfo, uvFromEvent, state, maxScoops: MAX_SCOOPS });
 const tilt = new TiltController({ sim, audio, plateInfo, uvFromEvent });
+const taste = new TasteController({ sim, audio, plateInfo });
 
 // ---- レイアウト: お皿の位置をバーの隙間に合わせる ----
 function layout() {
@@ -168,6 +170,8 @@ canvas.addEventListener('pointerdown', (e) => {
     tilt.begin(x, y, e.pointerId);
     return;
   }
+  // スプーンでお皿を押さえたまま待つと「味見のすくい取り」がはじまる
+  if (state.tool === 'spoon') taste.begin(x, y, e);
   pointers.set(e.pointerId, { x, y, t: e.timeStamp });
   updateCursor(e, 0);
   if (state.tool !== 'finger') cursorEl.classList.add('visible');
@@ -186,6 +190,11 @@ canvas.addEventListener('pointermove', (e) => {
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
   for (const ev of events) {
     const [x, y] = uvFromEvent(ev);
+    // 味見のすくい取り中(または静止監視中)は、かき混ぜない
+    if (taste.filterMove(x, y, ev)) {
+      p.x = x; p.y = y; p.t = ev.timeStamp;
+      continue;
+    }
     const dt = Math.max(1, ev.timeStamp - p.t) / 1000;
     stirAt(p, x, y, dt, e.pressure || 0.5);
     p.x = x; p.y = y; p.t = ev.timeStamp;
@@ -195,6 +204,7 @@ canvas.addEventListener('pointermove', (e) => {
 
 function endPointer(e) {
   tilt.end(e.pointerId);
+  taste.onUp(e);
   pointers.delete(e.pointerId);
   if (pointers.size === 0) cursorEl.classList.remove('visible');
 }
@@ -329,6 +339,7 @@ const ui = new UI({
   onReset: () => {
     // お皿の上に何も載っていない、まっさらの状態へ戻す(自動の再配置はしない)
     pour.end();
+    taste.cancel();
     state.resetUntil = performance.now() + 1100;
     state.scoopsOnPlate = 0;
     state.stirEnergy = 0;
@@ -379,6 +390,7 @@ function frame(now) {
 
   const [tiltX, tiltY] = tilt.step(dt);
   pour.step(dt);
+  taste.step(dt);
   stepDrops(dt);
   sim.step(dt);
   const landed = chunks.update(dt, p, tiltX, tiltY);

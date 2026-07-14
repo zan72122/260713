@@ -26,6 +26,7 @@ export class IceSim {
     this.progPropsUpdate = new Program(gl, baseVS, SIM.propsUpdateFS);
     this.progProps2Update = new Program(gl, baseVS, SIM.props2UpdateFS);
     this.progSample = new Program(gl, baseVS, SIM.sampleFS);
+    this.progScoop = new Program(gl, baseVS, SIM.splatScoopFS);
     this.progRender = new Program(gl, baseVS, renderFS);
 
     // お皿(UVでの中心・半径)は main が layout から設定
@@ -40,9 +41,9 @@ export class IceSim {
     this.tilt = [0, 0];       // お皿の傾き(流れ落ちる向き, UV系yは上向き)
     this.time = 0;
 
-    // 指の位置の質感読み出し用 (props / props2 の2ピクセル)
-    this.sampleFBO = createFBO(this.gl, 2, 1, this.gl.RGBA8, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.gl.NEAREST);
-    this.sampleBuf = new Uint8Array(8);
+    // 指の位置の質感・色読み出し用 (props / props2 / color の3ピクセル)
+    this.sampleFBO = createFBO(this.gl, 3, 1, this.gl.RGBA8, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.gl.NEAREST);
+    this.sampleBuf = new Uint8Array(12);
 
     this.allocate();
   }
@@ -160,25 +161,41 @@ export class IceSim {
     this.splatPropsInto(this.props2, x, y, radius, target, mixAmt, add);
   }
 
-  // 指の位置の質感を読み出す(音のフレーバー連動用)
-  // 戻り値は 0..1 の8成分。呼び出し側でスロットルすること
+  // 指の位置の質感・色を読み出す(音のフレーバー連動・味見用)
+  // 戻り値は 0..1 の12成分。呼び出し側でスロットルすること
   sampleAt(x, y) {
     const gl = this.gl;
     const p = this.progSample;
     p.use();
     gl.uniform1i(p.uniforms.uProps, this.props.read.attach(0));
     gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(1));
+    gl.uniform1i(p.uniforms.uColor, this.color.read.attach(2));
     gl.uniform2f(p.uniforms.uPoint, x, y);
     this.blit(this.sampleFBO);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sampleFBO.fbo);
-    gl.readPixels(0, 0, 2, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.sampleBuf);
+    gl.readPixels(0, 0, 3, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.sampleBuf);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     const b = this.sampleBuf;
     const INV255 = 1 / 255;
     return {
       temp: b[0] * INV255, air: b[1] * INV255, crystal: b[2] * INV255, gloss: b[3] * INV255,
       shari: b[4] * INV255, mochi: b[5] * INV255, shell: b[6] * INV255, jelly: b[7] * INV255,
+      r: b[8] * INV255, g: b[9] * INV255, b: b[10] * INV255, amount: b[11] * INV255,
     };
+  }
+
+  // すくい取り(味見スプーン): その場所のアイスを削り、くぼみを残す
+  scoopAt(x, y, radius, strength) {
+    const gl = this.gl;
+    const p = this.progScoop;
+    p.use();
+    gl.uniform1i(p.uniforms.uTarget, this.color.read.attach(0));
+    gl.uniform2f(p.uniforms.uPoint, x, y);
+    gl.uniform1f(p.uniforms.uRadius, radius);
+    gl.uniform1f(p.uniforms.uAspect, this.aspect);
+    gl.uniform1f(p.uniforms.uStrength, strength);
+    this.blit(this.color.write);
+    this.color.swap();
   }
 
   // ---- 1フレーム進める ----
