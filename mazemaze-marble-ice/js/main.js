@@ -303,6 +303,7 @@ const ui = new UI({
   onTempUp: () => { state.tempHold = null; },
   onSoundToggle: (on) => audio.setEnabled(on),
   onReset: () => {
+    // お皿の上に何も載っていない、まっさらの状態へ戻す(自動の再配置はしない)
     state.resetUntil = performance.now() + 1100;
     state.scoopsOnPlate = 0;
     state.stirEnergy = 0;
@@ -311,8 +312,6 @@ const ui = new UI({
     clearPendingDrops();
     chunks.clear();
     audio.sweep();
-    // フェードが終わったら、また新しいランダム配置で始まる
-    scheduleInitialScene(1250);
   },
 });
 

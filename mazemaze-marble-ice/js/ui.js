@@ -1,5 +1,5 @@
 // UI: 文字なし・絵アイコンのみのボタン群
-// フレーバー / トッピング / 道具 / 温度 / 音 / リセット(長押し)
+// フレーバー / トッピング / 道具 / 温度 / 音 / リセット
 
 // フレーバーごとの固有質感:
 //   props  = [temp, air, crystal, gloss]  (温度 / ふわふわ / ざらざら / ツヤ)
@@ -194,47 +194,17 @@ export class UI {
       this.h.onSoundToggle(this.soundOn);
     });
 
-    // リセット(1秒長押し・リング表示)
+    // リセット(タップで即、お皿をまっさらに)
     const rb = this.mkBtn(el, `
       <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
         <path d="M20 7 a13 13 0 1 1 -12.1 8" fill="none" stroke="#e06a9a" stroke-width="4.5" stroke-linecap="round"/>
         <path d="M4 8 l5 8 l7 -6 z" fill="#e06a9a"/>
-      </svg>
-      <svg id="resetring" viewBox="0 0 70 70">
-        <circle cx="35" cy="35" r="32" fill="none" stroke="#ff9ecb" stroke-width="5"
-          stroke-dasharray="201" stroke-dashoffset="201" stroke-linecap="round"
-          transform="rotate(-90 35 35)"/>
       </svg>`, 'reset');
-    const ring = rb.querySelector('#resetring circle');
-    const ringEl = rb.querySelector('#resetring');
-    let holdStart = 0, raf = 0;
-    const HOLD_MS = 900;
-    const tick = () => {
-      const p = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
-      ring.style.strokeDashoffset = String(201 * (1 - p));
-      if (p >= 1) {
-        cancel();
-        this.boing(rb);
-        this.h.onReset();
-      } else {
-        raf = requestAnimationFrame(tick);
-      }
-    };
-    const start = (e) => {
+    rb.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       this.h.onAnyPress();
-      holdStart = performance.now();
-      ringEl.classList.add('active');
-      raf = requestAnimationFrame(tick);
-    };
-    const cancel = () => {
-      cancelAnimationFrame(raf);
-      ringEl.classList.remove('active');
-      ring.style.strokeDashoffset = '201';
-    };
-    rb.addEventListener('pointerdown', start);
-    rb.addEventListener('pointerup', cancel);
-    rb.addEventListener('pointercancel', cancel);
-    rb.addEventListener('pointerleave', cancel);
+      this.boing(rb);
+      this.h.onReset();
+    });
   }
 }
