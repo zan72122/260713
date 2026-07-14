@@ -37,6 +37,7 @@ export class IceSim {
     this.ambientRate = 0.06;  // 通常時はゆっくり常温へ
     this.sharpness = 0.86;    // マーブルのくっきり度
     this.fade = 1.0;          // リセット中 <1
+    this.tilt = [0, 0];       // お皿の傾き(流れ落ちる向き, UV系yは上向き)
     this.time = 0;
 
     // 指の位置の質感読み出し用 (props / props2 の2ピクセル)
@@ -195,6 +196,7 @@ export class IceSim {
       gl.uniform1i(p.uniforms.uProps2, this.props2.read.attach(2));
       gl.uniform1i(p.uniforms.uColor, this.color.read.attach(3));
       gl.uniform1f(p.uniforms.uDt, dt);
+      gl.uniform2f(p.uniforms.uTilt, this.tilt[0], this.tilt[1]);
       this.bindPlate(p);
       this.blit(this.velocity.write);
       this.velocity.swap();
@@ -323,6 +325,7 @@ export class IceSim {
     gl.uniform1f(p.uniforms.uTime, this.time);
     gl.uniform1f(p.uniforms.uAmbient, this.ambient);
     gl.uniform2f(p.uniforms.uResolution, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.uniform2f(p.uniforms.uTilt, this.tilt[0], this.tilt[1]);
     this.bindPlate(p);
     this.blit(null);
   }

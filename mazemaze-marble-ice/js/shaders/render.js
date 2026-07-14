@@ -12,6 +12,7 @@ uniform sampler2D uVelocity;
 uniform float uTime;
 uniform float uAmbient;
 uniform vec2 uResolution;
+uniform vec2 uTilt; // お皿の傾き(流れ落ちる向き)
 ${PLATE_MASK}
 ${NOISE}
 
@@ -56,10 +57,11 @@ void main(){
   float coldAmb = smoothstep(0.45, 0.1, uAmbient);
   float warmAmb = smoothstep(0.55, 0.9, uAmbient);
 
-  // --- お皿の影 ---
-  vec2 shUv = vUv + vec2(0.006, 0.014);
+  // --- お皿の影(傾けると影が沈む側へ大きくずれる) ---
+  vec2 shUv = vUv + vec2(0.006, 0.014) + uTilt * vec2(0.022, 0.022);
   float shD = plateDist(shUv);
-  col *= 1.0 - 0.16 * (1.0 - smoothstep(1.05, 1.22, shD));
+  float tiltMag = length(uTilt);
+  col *= 1.0 - (0.16 + tiltMag * 0.05) * (1.0 - smoothstep(1.05, 1.22 + tiltMag * 0.06, shD));
 
   // --- お皿 ---
   float plateEdge = smoothstep(1.16, 1.14, pd);
@@ -72,10 +74,12 @@ void main(){
     plate -= rimShadow * vec3(0.10, 0.08, 0.05);
     // 内側のやわらかい落ち影
     plate -= smoothstep(0.9, 0.2, pd) * vec3(0.03, 0.025, 0.01);
-    // 陶器の照り
+    // 陶器の照り(傾けると高い側へ照りが移動する)
     vec2 pp = (vUv - uPlateCenter) * vec2(uAspect, 1.0) / uPlateRadius;
-    float sheen = pow(max(0.0, 1.0 - length(pp - vec2(-0.35, 0.4))), 2.0);
+    float sheen = pow(max(0.0, 1.0 - length(pp - vec2(-0.35, 0.4) + uTilt * 0.55)), 2.0);
     plate += sheen * 0.05;
+    // 傾き: 高い側(-uTilt方向)が明るく、低い側が暗くなり、傾きが目に見える
+    plate += dot(pp, -uTilt) * 0.055;
     // ほんのりピンクの縁どり
     float ring = smoothstep(0.015, 0.0, abs(pd - 1.10));
     plate = mix(plate, vec3(1.0, 0.72, 0.84), ring * 0.8);
@@ -161,8 +165,8 @@ void main(){
     vec3 syrupCol = albedo * albedo * 1.25;
     albedo = mix(albedo, syrupCol, syrup * 0.75);
 
-    // --- ライティング ---
-    vec3 L = normalize(vec3(-0.35, 0.55, 0.75));
+    // --- ライティング(傾きで光源もわずかに動き、面の向きの変化が見える) ---
+    vec3 L = normalize(vec3(-0.35 - uTilt.x * 0.3, 0.55 - uTilt.y * 0.3, 0.75));
     float diff = 0.62 + 0.42 * max(dot(N, L), 0.0);
     // ふわふわのサブサーフェスっぽい持ち上げ
     diff = mix(diff, diff * 0.5 + 0.62, air * 0.45);

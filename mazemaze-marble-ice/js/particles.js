@@ -106,7 +106,7 @@ export class Chunks {
     return born.length; // われた数(音用)
   }
 
-  update(dt, plate) {
+  update(dt, plate, tiltX = 0, tiltY = 0) {
     let landed = 0;
     for (const c of this.list) {
       if (c.falling) {
@@ -120,6 +120,10 @@ export class Chunks {
         }
         continue;
       }
+      // お皿の傾きで粒も滑る(浮いている粒ほどよく滑り、埋まった粒はアイスと一緒に流れる)
+      const slide = 1.0 - c.sink * 0.65;
+      c.vx += tiltX * dt * 1.6 * slide;
+      c.vy += tiltY * dt * 1.6 * slide;
       c.x += c.vx * dt / plate.aspect;
       c.y += c.vy * dt;
       c.rot += c.rotV * dt;

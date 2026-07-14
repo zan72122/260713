@@ -72,6 +72,7 @@ uniform sampler2D uProps;
 uniform sampler2D uProps2;
 uniform sampler2D uColor;
 uniform float uDt;
+uniform vec2 uTilt; // お皿の傾き(流れ落ちる向き)
 ${PLATE_MASK}
 void main(){
   vec2 invA = vec2(1.0 / uAspect, 1.0);
@@ -82,6 +83,14 @@ void main(){
   float temp = texture(uProps, vUv).x;
   float amount = texture(uColor, vUv).a;
   vec4 q = texture(uProps2, vUv);
+
+  // お皿の傾き: アイスがある所に重力が働く。
+  // どれだけ流れるかは各ピクセルの状態しだい(減衰との釣り合いが終端速度になる):
+  // とろとろは川になり、キンキンはほぼ動かず、もち・ぷるは揺れながらゆっくり
+  float body = smoothstep(0.02, 0.25, amount);
+  float mobility = mix(0.45, 1.5, smoothstep(0.15, 0.9, temp));
+  v += uTilt * (uDt * 2.6 * body * mobility);
+
   // アイスがある所は「ペースト」: 冷たいほど強い減衰(降伏応力っぽく即停止)
   // アイスが無い所も摩擦で減衰
   float damp = mix(9.0, 1.6, smoothstep(0.15, 0.9, temp));

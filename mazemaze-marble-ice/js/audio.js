@@ -13,6 +13,7 @@ export class GameAudio {
     this.started = false;
     this.stir = { speed: 0, chunky: 0, tex: null };
     this.pour = 0;
+    this.tiltMag = 0;
     this._nextCrunch = 0;
     this._nextDrip = 0;
     this._nextPourDrip = 0;
@@ -73,6 +74,9 @@ export class GameAudio {
 
     // ---- 注ぎループ: とろ〜っとたれる音 ----
     this.pourLoop = this.makeNoiseLoop({ type: 'lowpass', freq: 750, q: 1.4, rate: 0.8 });
+
+    // ---- 傾きループ: アイスがずるずる流れる低い音 ----
+    this.tiltLoop = this.makeNoiseLoop({ type: 'lowpass', freq: 240, q: 1.6, rate: 0.5 });
 
     // ---- もちもちループ: ゆっくり深くうねる低域(のびる音) ----
     this.mochiLoop = this.makeNoiseLoop({ type: 'lowpass', freq: 260, q: 2.0, rate: 0.45 });
@@ -146,6 +150,11 @@ export class GameAudio {
     this.pour = amount;
   }
 
+  // お皿の傾きの強さ (0..1)
+  setTiltState(mag) {
+    this.tiltMag = mag;
+  }
+
   // 毎フレーム呼ぶ
   update() {
     if (!this.ctx || !this.enabled) return;
@@ -194,6 +203,10 @@ export class GameAudio {
     // 注ぎ: とろ〜っというたれ音 + ときどき雫
     this.pourLoop.gain.gain.setTargetAtTime(this.pour * 0.12, now, 0.06);
     this.pourLoop.filter.frequency.setTargetAtTime(600 + Math.sin(now * 5.0) * 160, now, 0.08);
+
+    // 傾き: 傾けるほどずるずると低い流れ音
+    this.tiltLoop.gain.gain.setTargetAtTime(this.tiltMag * this.tiltMag * 0.16, now, 0.1);
+    this.tiltLoop.filter.frequency.setTargetAtTime(180 + this.tiltMag * 220, now, 0.12);
     if (this.pour > 0.3 && now >= this._nextPourDrip) {
       this.drip();
       this._nextPourDrip = now + 0.18 + Math.random() * 0.4;
@@ -303,6 +316,22 @@ export class GameAudio {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
     src.connect(f); f.connect(g); g.connect(this.sfxBus);
     src.start(t, Math.random()); src.stop(t + 0.08);
+  }
+
+  // ことっ(お皿の縁をつかんだ)
+  tiltCreak() {
+    if (!this.ctx || !this.enabled) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(210, t);
+    o.frequency.exponentialRampToValueAtTime(150, t + 0.08);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.10, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    o.connect(g); g.connect(this.sfxBus);
+    o.start(t); o.stop(t + 0.15);
   }
 
   // ぱりぱりっ(チョコ殻がわれる: 2〜3連の高いクラック)

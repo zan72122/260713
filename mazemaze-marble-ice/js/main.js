@@ -4,6 +4,8 @@ import { IceSim } from './sim.js';
 import { Chunks, Flakes, CHUNK_TYPES } from './particles.js';
 import { GameAudio } from './audio.js';
 import { UI, FLAVORS, CURSOR_SVGS } from './ui.js';
+import { PourController } from './pour.js';
+import { TiltController } from './tilt.js';
 
 const canvas = document.getElementById('glcanvas');
 const gl = initGL(canvas);
@@ -22,13 +24,6 @@ const TOOLS = {
 const MAX_SCOOPS = 9;
 const SAMPLE_INTERVAL_MS = 90;   // 指の下の質感を読み出す間隔(音のフレーバー連動用)
 const SHELL_BREAK_THRESHOLD = 0.18; // これ以上の殻は混ぜると割れる
-
-// ---- 注ぎ(フレーバーボタンを押したままお皿へドラッグ)----
-const POUR_AMT_PER_SEC = 3.6;    // 1秒あたりに落ちるアイス量(スプラット量)
-const POUR_SCOOPS_PER_SEC = 0.5; // 予算消費: 2秒注ぐと1スクープぶん
-const POUR_TAP_MIN = 0.04;       // これ未満しか注いでいなければ「タップ=ぽとん」扱い
-const POUR_RADIUS_MAX = 0.16;    // ゆっくり動かした時の帯の太さ(皿半径比)
-const POUR_RADIUS_MIN = 0.08;    // 速く動かした時の糸の細さ(皿半径比)
 
 // 何もさわっていない時の音用フォールバック質感
 const DEFAULT_SAMPLE = {
@@ -54,6 +49,8 @@ const sim = new IceSim(gl, canvas);
 const chunks = new Chunks(gl);
 const flakes = new Flakes(gl);
 const audio = new GameAudio();
+const pour = new PourController({ sim, audio, plateInfo, uvFromEvent, state, maxScoops: MAX_SCOOPS });
+const tilt = new TiltController({ sim, audio, plateInfo, uvFromEvent });
 
 // ---- レイアウト: お皿の位置をバーの隙間に合わせる ----
 function layout() {
@@ -155,6 +152,7 @@ function onFirstInteract() {
     state.started = true;
     audio.start();
     audio.setEnabled(ui.soundOn);
+    tilt.requestSensorPermission(); // iOSの傾きセンサー許可(ユーザー操作内でのみ有効)
   }
   audio.resume();
   document.getElementById('starthint').classList.add('hidden');
@@ -165,12 +163,23 @@ canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   onFirstInteract();
   const [x, y] = uvFromEvent(e);
+  // お皿の縁をつかんだら「かたむけ」、お皿の中は「かき混ぜ」
+  if (!tilt.active && tilt.isRimGrab(x, y)) {
+    tilt.begin(x, y, e.pointerId);
+    return;
+  }
   pointers.set(e.pointerId, { x, y, t: e.timeStamp });
   updateCursor(e, 0);
   if (state.tool !== 'finger') cursorEl.classList.add('visible');
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerId === tilt.pointerId) {
+    e.preventDefault();
+    const [x, y] = uvFromEvent(e);
+    tilt.move(x, y);
+    return;
+  }
   const p = pointers.get(e.pointerId);
   if (!p) return;
   e.preventDefault();
@@ -185,6 +194,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 
 function endPointer(e) {
+  tilt.end(e.pointerId);
   pointers.delete(e.pointerId);
   if (pointers.size === 0) cursorEl.classList.remove('visible');
 }
@@ -250,98 +260,6 @@ function updateCursor(e, moving) {
   cursorEl.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
 }
 
-// ---- 注ぎ: フレーバーボタンを押したままお皿へドラッグすると、たれ落ちる ----
-// 手の速さで太さが変わり(ゆっくり=太い帯、速い=細い糸)、とどまると山になる。
-// タップだけなら従来どおり「ぽとん」と1スクープ落ちる。
-const pour = {
-  active: false, flavor: null, pointerId: -1,
-  x: 0, y: 0, speedSm: 0, poured: 0, lastMoveT: 0,
-  depX: 0, depY: 0, // 前回の着地点(線を途切れさせない補間用)
-};
-const pourCursorEl = document.getElementById('pourcursor');
-
-function beginPour(flavor, e) {
-  if (state.scoopsOnPlate >= MAX_SCOOPS) return false;
-  const [x, y] = uvFromEvent(e);
-  pour.active = true;
-  pour.flavor = flavor;
-  pour.pointerId = e.pointerId;
-  pour.x = x; pour.y = y;
-  pour.depX = x; pour.depY = y;
-  pour.speedSm = 0;
-  pour.poured = 0;
-  pour.lastMoveT = e.timeStamp;
-  pourCursorEl.style.background = flavor.body;
-  pourCursorEl.classList.add('visible');
-  movePourCursor(e);
-  return true;
-}
-
-function movePourCursor(e) {
-  pourCursorEl.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
-}
-
-function endPour() {
-  const tapped = pour.active && pour.poured < POUR_TAP_MIN;
-  pour.active = false;
-  pour.flavor = null;
-  pour.pointerId = -1;
-  pourCursorEl.classList.remove('visible');
-  audio.setPourState(0);
-  return tapped;
-}
-
-window.addEventListener('pointermove', (e) => {
-  if (!pour.active || e.pointerId !== pour.pointerId) return;
-  const [x, y] = uvFromEvent(e);
-  const dt = Math.max(1, e.timeStamp - pour.lastMoveT) / 1000;
-  const speed = Math.hypot((x - pour.x) * sim.aspect, y - pour.y) / dt;
-  pour.speedSm += (Math.min(speed, 3) - pour.speedSm) * Math.min(1, dt * 12);
-  pour.x = x; pour.y = y;
-  pour.lastMoveT = e.timeStamp;
-  movePourCursor(e);
-});
-
-function stepPour(dt) {
-  if (!pour.active) return;
-  if (state.scoopsOnPlate >= MAX_SCOOPS) { endPour(); return; }
-  const p = plateInfo();
-  const dx = (pour.x - p.cx) * p.aspect, dy = pour.y - p.cy;
-  const onPlate = Math.hypot(dx, dy) < p.r * 1.02;
-  audio.setPourState(onPlate ? 1 : 0);
-  if (!onPlate) {
-    // お皿の外では落とさない。次にお皿へ入った瞬間から線が始まる
-    pour.depX = pour.x; pour.depY = pour.y;
-    return;
-  }
-
-  // 速く動かすほど細い糸、ゆっくりだと太い帯。とどまれば同じ場所に積もって山になる
-  const thin = Math.min(1, pour.speedSm / 1.6);
-  const radius = p.r * (POUR_RADIUS_MAX - (POUR_RADIUS_MAX - POUR_RADIUS_MIN) * thin);
-  // たれ落ちる先はほんの少しゆらぐ(リボンが有機的になる)
-  const t = performance.now() * 0.001;
-  const wx = Math.sin(t * 9.2) * 0.006 / p.aspect;
-  const wy = Math.cos(t * 7.6) * 0.006;
-  const col = pour.flavor.color;
-
-  // 前回の着地点から現在位置まで補間して、速い線でも途切れない糸にする
-  const segX = (pour.x - pour.depX) * p.aspect, segY = pour.y - pour.depY;
-  const segLen = Math.hypot(segX, segY);
-  const steps = Math.max(1, Math.min(8, Math.ceil(segLen / (radius * 0.5))));
-  const amt = POUR_AMT_PER_SEC * dt / steps;
-  for (let i = 1; i <= steps; i++) {
-    const u = i / steps;
-    const sx = pour.depX + (pour.x - pour.depX) * u + wx;
-    const sy = pour.depY + (pour.y - pour.depY) * u + wy;
-    sim.splatColor(sx, sy, radius, col[0], col[1], col[2], amt);
-    sim.splatProps(sx, sy, radius, pour.flavor.props, [0.5, 0.5, 0.5, 0.5], [0, 0, 0, 0]);
-    sim.splatProps2(sx, sy, radius, pour.flavor.props2, [0.5, 0.5, 0.5, 0.5], [0, 0, 0, 0]);
-  }
-  pour.depX = pour.x; pour.depY = pour.y;
-  state.scoopsOnPlate += POUR_SCOOPS_PER_SEC * dt;
-  pour.poured += POUR_SCOOPS_PER_SEC * dt;
-}
-
 // ---- 初期配置: 2〜3個をランダムなフレーバー・位置でぽとん ----
 const pendingDropTimers = [];
 
@@ -383,10 +301,10 @@ function scheduleInitialScene(extraDelay = 0) {
 // ---- UI ----
 const ui = new UI({
   onAnyPress: () => { onFirstInteract(); audio.pop(); },
-  onFlavorDown: (f, e) => beginPour(f, e),
+  onFlavorDown: (f, e) => pour.begin(f, e),
   onFlavorUp: () => {
     const flavor = pour.flavor;
-    const tapped = endPour();
+    const tapped = pour.end();
     // ドラッグせずに離した=従来どおり「ぽとん」と1スクープ
     if (tapped && flavor) return addScoop(flavor);
     return false;
@@ -410,7 +328,7 @@ const ui = new UI({
   onSoundToggle: (on) => audio.setEnabled(on),
   onReset: () => {
     // お皿の上に何も載っていない、まっさらの状態へ戻す(自動の再配置はしない)
-    endPour();
+    pour.end();
     state.resetUntil = performance.now() + 1100;
     state.scoopsOnPlate = 0;
     state.stirEnergy = 0;
@@ -459,10 +377,11 @@ function frame(now) {
   // リセットのフェード(実経過時間ベース: 低フレームレートでも確実に消える)
   sim.fade = performance.now() < state.resetUntil ? Math.pow(0.002, Math.min(rawDt, 0.5)) : 1.0;
 
-  stepPour(dt);
+  const [tiltX, tiltY] = tilt.step(dt);
+  pour.step(dt);
   stepDrops(dt);
   sim.step(dt);
-  const landed = chunks.update(dt, p);
+  const landed = chunks.update(dt, p, tiltX, tiltY);
   if (landed > 0) audio.crunchTick(0.5, 1, 0);
   flakes.update(dt);
 
