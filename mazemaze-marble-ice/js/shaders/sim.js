@@ -294,15 +294,36 @@ void main(){
   frag = q;
 }`;
 
-// ---- 指の位置の質感を1回で読み出すサンプルパス ----
-// 2x1 の RGBA8 に props(左) / props2(右) をエンコードして readPixels する
+// ---- 指の位置の質感・色を1回で読み出すサンプルパス ----
+// 3x1 の RGBA8 に props / props2 / color をエンコードして readPixels する
 export const sampleFS = `#version 300 es
 precision highp float;
 in vec2 vUv;
 out vec4 frag;
 uniform sampler2D uProps;
 uniform sampler2D uProps2;
+uniform sampler2D uColor;
 uniform vec2 uPoint;
 void main(){
-  frag = vUv.x < 0.5 ? texture(uProps, uPoint) : texture(uProps2, uPoint);
+  if (vUv.x < 0.3333) frag = texture(uProps, uPoint);
+  else if (vUv.x < 0.6667) frag = texture(uProps2, uPoint);
+  else frag = clamp(texture(uColor, uPoint), 0.0, 1.0);
+}`;
+
+// ---- すくい取り(味見スプーン): アイスの量をガウス状に減らし、くぼみを残す ----
+export const splatScoopFS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 frag;
+uniform sampler2D uTarget;
+uniform vec2 uPoint;
+uniform float uRadius;
+uniform float uAspect;
+uniform float uStrength; // 1回あたりの削り量 (0..1)
+void main(){
+  vec2 d = (vUv - uPoint) * vec2(uAspect, 1.0);
+  float g = exp(-dot(d, d) / (uRadius * uRadius));
+  vec4 c = texture(uTarget, vUv);
+  c.a *= 1.0 - clamp(uStrength * g, 0.0, 0.95);
+  frag = c;
 }`;
