@@ -14,6 +14,7 @@ export class GameAudio {
     this.stir = { speed: 0, chunky: 0, tex: null };
     this.pour = 0;
     this.tiltMag = 0;
+    this._plateSampler = null;
     this._nextCrunch = 0;
     this._nextDrip = 0;
     this._nextPourDrip = 0;
@@ -42,6 +43,12 @@ export class GameAudio {
     this.bgmBus.gain.value = 0.4;
     this.bgmBus.connect(this.master);
 
+    // ノイズバッファ(共用)
+    const len = ctx.sampleRate * 2;
+    this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = this.noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+
     // オルゴール用ディレイ(ふわっと残響)
     const bgmDelay = ctx.createDelay(1.0);
     bgmDelay.delayTime.value = 0.42;
@@ -51,13 +58,9 @@ export class GameAudio {
     wet.gain.value = 0.4;
     bgmDelay.connect(fb); fb.connect(bgmDelay);
     bgmDelay.connect(wet); wet.connect(this.bgmBus);
-    this.bgm = new MusicBox(ctx, this.bgmBus, bgmDelay);
-
-    // ノイズバッファ(共用)
-    const len = ctx.sampleRate * 2;
-    this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = this.noiseBuf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    // 状態駆動BGM: お皿を読むオルゴール
+    this.bgm = new MusicBox(ctx, this.bgmBus, bgmDelay, this.noiseBuf);
+    if (this._plateSampler) this.bgm.setSampler(this._plateSampler);
 
     // ---- ねっとりループ: ねちゃっとした低域ノイズ ----
     this.slush = this.makeNoiseLoop({ type: 'lowpass', freq: 500, q: 1.2 });
@@ -153,6 +156,18 @@ export class GameAudio {
   // お皿の傾きの強さ (0..1)
   setTiltState(mag) {
     this.tiltMag = mag;
+  }
+
+  // 状態駆動BGM: お皿を読むサンプラーを登録 ((ox, oy) => sample)
+  setPlateSampler(fn) {
+    this._plateSampler = fn;
+    if (this.bgm) this.bgm.setSampler(fn);
+  }
+
+  // いま鳴っている場所のアーム角(視覚化用)。BGMが動いていなければ null
+  getMusicAngle() {
+    if (!this.bgm || !this.ctx || !this.enabled || this.ctx.state !== 'running') return null;
+    return this.bgm.getAngle(this.ctx.currentTime);
   }
 
   // 毎フレーム呼ぶ

@@ -39,6 +39,7 @@ export class IceSim {
     this.sharpness = 0.86;    // マーブルのくっきり度
     this.fade = 1.0;          // リセット中 <1
     this.tilt = [0, 0];       // お皿の傾き(流れ落ちる向き, UV系yは上向き)
+    this.musicAngle = null;   // オルゴールの読み取りアーム角(null=非表示)
     this.time = 0;
 
     // 指の位置の質感・色読み出し用 (props / props2 / color の3ピクセル)
@@ -343,6 +344,8 @@ export class IceSim {
     gl.uniform1f(p.uniforms.uAmbient, this.ambient);
     gl.uniform2f(p.uniforms.uResolution, gl.drawingBufferWidth, gl.drawingBufferHeight);
     gl.uniform2f(p.uniforms.uTilt, this.tilt[0], this.tilt[1]);
+    gl.uniform1f(p.uniforms.uMusicAngle, this.musicAngle ?? 0.0);
+    gl.uniform1f(p.uniforms.uMusicOn, this.musicAngle != null ? 1.0 : 0.0);
     this.bindPlate(p);
     this.blit(null);
   }
